@@ -1,10 +1,12 @@
 /** ccliner — CLI for AI-harness context hygiene. */
+import { readFile } from 'node:fs/promises'
 import { bold, dim } from './log.js'
 
 export const HELP = `${bold('ccliner')} ${dim('— линтер контекста для AI-харнессов')}
 
 ${bold('Использование:')}
   ccliner <команда> [опции]
+  ccliner version | --version
 
 ${bold('Команды:')}
   scan [--root <dir>] [--json]
@@ -78,6 +80,11 @@ const LOADERS = {
 export async function main(argv) {
   if (argv.length === 0 || argv[0] === 'help' || argv[0] === '--help' || argv[0] === '-h') {
     console.log(HELP)
+    return 0
+  }
+  if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
+    const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+    console.log(`ccliner ${pkg.version}`)
     return 0
   }
   const command = argv[0]
