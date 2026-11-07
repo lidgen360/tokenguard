@@ -90,5 +90,7 @@ export function slugifyHeading(text) {
 export function isLocalLink(href) {
   if (!href) return false
   if (/^(https?:|mailto:|tel:|#)/i.test(href)) return false
+  // Абсолютные пути файловой системы проверяем, а сайтовые (/articles/...) — нет.
+  if (href.startsWith('/')) return /^\/(Users|opt|tmp|var|etc|home)\//.test(href)
   return true
 }
