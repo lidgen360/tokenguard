@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { walkFiles, exists, humanBytes, ageDays, mtimeMs, fileSize, readText, writeFile, timeAgo } from '../util/files.js'
 import { parseMarkdown, normalizeText, isLocalLink, slugifyHeading } from '../util/md.js'
+import { recordArtifact } from '../util/manifest.js'
 import { printTable, info, ok, warn, bold, dim } from '../log.js'
 
 export const VALUE_FLAGS = ['root', 'out', 'min-age', 'limit']
@@ -166,6 +167,7 @@ function indexCommand(flags) {
   if (flags.write) {
     const outFile = flags.out ? path.resolve(String(flags.out)) : path.join(root, 'INDEX.md')
     writeFile(outFile, renderIndex(data))
+    recordArtifact({ kind: 'docs-index', action: 'create', path: outFile, meta: { docs: data.entries.length } })
     ok(`индекс: ${outFile}`)
   }
   printTable(

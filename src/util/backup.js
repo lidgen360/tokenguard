@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { sanitizeName } from './naming.js'
 import { DATA_HOME, ensureDir, exists, timestamp, expand } from './files.js'
+import { recordArtifact } from './manifest.js'
 
 export const BACKUP_DIR_NAME = 'backups'
 export const BACKUP_DIR = path.join(DATA_HOME, BACKUP_DIR_NAME)
@@ -33,6 +34,7 @@ export function backupPaths(paths, label = 'backup') {
   const out = path.join(dir, `${sanitizeName(label)}-${timestamp()}.tar.gz`)
   const relative = list.map((p) => path.relative(base, path.resolve(p)))
   execFileSync('tar', ['-czf', out, '-C', base, ...relative], { stdio: 'pipe' })
+  recordArtifact({ kind: 'backup', action: 'backup', path: out, meta: { label, sources: list } })
   return out
 }
 

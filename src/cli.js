@@ -17,8 +17,9 @@ ${bold('Команды:')}
   chats rename <session> <title> [--force]
   chats archive <session...> [--apply]
   chats clean --older-than <days> [--apply]
+  chats drift [<session>|--all] [--threshold 0.2] [--window 3] [--json]
       Безопасный архивариус: список, конспект, переименование по смыслу,
-      архивация и удаление с автоматическим бэкапом.
+      архивация, удаление с бэкапом и детектор смены темы в диалоге.
 
   mcp audit [--probe] [--json]
   mcp lazy <server> [--client <client>] [--apply] [--idle <minutes>]
@@ -32,6 +33,10 @@ ${bold('Команды:')}
   docs index [--root <dir>] [--write] [--json]
   docs check [--root <dir>] [--json] [--strict]
       Индекс Markdown-документации и поиск противоречий/устаревших мест.
+
+  artifacts list [--kind <тип>] [--json]
+  artifacts clean (--all | --kind <тип> | --older-than <дней>) [--apply]
+      Что создал ccliner (бэкапы, конспекты, прокси, архивы) и безопасное удаление.
 
 ${bold('Принципы:')}
   • по умолчанию ничего не меняется (dry-run), изменения — только с --apply;
@@ -75,6 +80,7 @@ const LOADERS = {
   mcp: () => import('./commands/mcp.js'),
   projects: () => import('./commands/projects.js'),
   docs: () => import('./commands/docs.js'),
+  artifacts: () => import('./commands/artifacts.js'),
 }
 
 export async function main(argv) {

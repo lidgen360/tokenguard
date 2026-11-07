@@ -4,6 +4,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { DATA_HOME, exists, isDir, humanBytes, ageDays, timeAgo, ensureDir, writeFile, readText } from '../util/files.js'
 import { sanitizeName } from '../util/naming.js'
+import { recordArtifact } from '../util/manifest.js'
 import { printTable, info, ok, warn, bold } from '../log.js'
 
 export const VALUE_FLAGS = ['root', 'max-depth', 'limit']
@@ -202,6 +203,7 @@ function archiveCommand(repoPath, flags) {
     'Восстановление: `git clone repo.bundle project && tar -xzf worktree.tar.gz`',
   ]
   writeFile(path.join(archiveRoot, 'ARCHIVE.md'), `${lines.join('\n')}\n`)
+  recordArtifact({ kind: 'archive', action: 'create', path: archiveRoot, meta: { repo } })
   ok(`архив: ${archiveRoot}`)
   if (flags.delete) {
     const moved = path.join(archiveRoot, 'repo')

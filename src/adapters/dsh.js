@@ -226,6 +226,22 @@ export function extractDigest(session) {
   return { summary, userRequests, filesTouched: [...files.keys()], commands, assistantTexts, events }
 }
 
+/** Таймлайн prompt-токенов по запросам: нужен для оценки экономии при делении чата. */
+export function usageTimeline(session) {
+  const timeline = []
+  for (const event of getEvents(session)) {
+    if (event.type !== 'assistant/message') continue
+    const usage = event.data?.usage
+    if (!usage) continue
+    timeline.push({
+      time: event.time ?? 0,
+      promptTokens: (usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0),
+      outputTokens: usage.outputTokens ?? 0,
+    })
+  }
+  return timeline
+}
+
 /** Использование MCP-инструментов: сервер → вызовы и последнее использование. */
 function parseArguments(value) {
   if (!value) return {}

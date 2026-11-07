@@ -9,9 +9,11 @@ import { backupPaths } from '../util/backup.js'
 import { DATA_HOME, ensureDir, humanBytes, mtimeMs, timeAgo, shortId } from '../util/files.js'
 import { sanitizeName } from '../util/naming.js'
 import { printTable, info, ok, warn, bold } from '../log.js'
-import { humanTokens } from '../util/tokens.js'
+import { estimateTokens, humanTokens } from '../util/tokens.js'
+import { analyzeTopicDrift, segmentLabel } from '../util/topics.js'
+import { recordArtifact } from '../util/manifest.js'
 
-export const VALUE_FLAGS = ['client', 'out', 'older-than', 'limit']
+export const VALUE_FLAGS = ['client', 'out', 'older-than', 'limit', 'threshold', 'window']
 
 const ADAPTERS = { dsh, 'claude-code': claudeCode, codex }
 
@@ -22,6 +24,7 @@ export async function run(positional, flags) {
   if (sub === 'rename') return rename(positional[1], positional.slice(2).join(' '), flags)
   if (sub === 'archive') return archive(positional.slice(1), flags)
   if (sub === 'clean') return clean(flags)
+  if (sub === 'drift') return drift(positional.slice(1), flags)
   console.log(HELP)
   return 0
 }
@@ -31,6 +34,8 @@ const HELP = `${bold('ccliner chats')} — архивариус чатов
   ccliner chats list [--all] [--limit N] [--json]
   ccliner chats digest <session> [--out файл] [--client dsh|claude-code|codex]
   ccliner chats rename <session> "Новое название" [--force]
+  ccliner chats drift [<session>|--all] [--threshold 0.2] [--window 3] [--json]
+      Детектор смены темы: где разговор ушёл в сторону и где выгодно начать новый чат.
   ccliner chats archive <session...> [--apply]
   ccliner chats clean --older-than 30 [--apply]
 `
@@ -120,6 +125,7 @@ function digest(ref, flags) {
   const markdown = renderDigest(session, extracted)
   ensureDir(path.dirname(outFile))
   fs.writeFileSync(outFile, markdown)
+  recordArtifact({ kind: 'digest', action: 'create', path: outFile, meta: { session: session.id } })
   ok(`конспект: ${outFile}`)
   info(`запросов: ${extracted.userRequests.length}, файлов: ${extracted.filesTouched.length}, команд: ${extracted.commands.length}`)
   return 0
@@ -184,6 +190,7 @@ function rename(ref, title, flags) {
   }
   try {
     const result = adapter.renameSession(session, title, { force: Boolean(flags.force) })
+    recordArtifact({ kind: 'session-rename', action: 'rename', path: session.file, meta: { session: session.id, title: result.title, backup: result.backup } })
     ok(`переименовано в «${result.title}» (${result.bytes} байт)`)
     info(`бэкап: ${result.backup}`)
     return 0
@@ -225,6 +232,7 @@ function archive(refs, flags) {
   const files = targets.map((session) => session.file)
   const backup = backupPaths(files, 'chats-archive')
   for (const session of targets) fs.rmSync(path.dirname(session.file), { recursive: true, force: true })
+  recordArtifact({ kind: 'chats-archive', action: 'delete', path: backup, meta: { sessions: targets.map((item) => item.id), count: targets.length } })
   ok(`удалено сессий: ${targets.length}; бэкап: ${backup}`)
   return 0
 }
@@ -250,3 +258,151 @@ function clean(flags) {
   return archive(sessions.map((session) => session.id), { ...flags, apply: true })
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Детектор смены темы                                                 */
+/* ------------------------------------------------------------------ */
+
+function userMessagesOf(adapter, session) {
+  return adapter.extractDigest(session).userRequests
+}
+
+/** Оценка токенов, которые тратились на «старую» тему после смены. */
+function estimateSavings(adapter, session, messages, shifts) {
+  if (shifts.length === 0) return { total: 0, mode: 'n/a', details: [] }
+  if (typeof adapter.usageTimeline === 'function') {
+    const timeline = adapter.usageTimeline(session).filter((item) => item.promptTokens > 0)
+    const details = []
+    let total = 0
+    for (const [index, shift] of shifts.entries()) {
+      // Непересекающиеся сегменты: от этой смены до следующей.
+      const startTime = shift.time || 0
+      const endTime = index + 1 < shifts.length ? (shifts[index + 1].time || Infinity) : Infinity
+      const segment = timeline.filter((item) => item.time >= startTime && item.time < endTime)
+      if (segment.length === 0) {
+        details.push({ shift, saved: 0 })
+        continue
+      }
+      // Старый контекст на момент смены тащится в каждом следующем запросе сегмента.
+      const baseline = segment[0].promptTokens
+      const saved = baseline * segment.length
+      details.push({ shift, saved })
+      total += saved
+    }
+    return { total, mode: 'оценка по usage из логов', details }
+  }
+  const first = shifts[0].index
+  const text = messages.slice(first).map((message) => message.text).join('\n')
+  return {
+    total: estimateTokens(text),
+    mode: 'оценка по тексту',
+    details: shifts.map((shift) => ({ shift, saved: 0 })),
+  }
+}
+
+function driftOne(ref, flags) {
+  const threshold = Number(flags.threshold ?? 0.2)
+  const windowSize = Number(flags.window ?? 3)
+  let picked
+  if (ref) {
+    picked = pickSession(ref, flags)
+    if (!picked.session || picked.session.ambiguous) throw new Error(`сессия «${ref}» не найдена или неоднозначна`)
+  } else {
+    const sessions = dsh.listSessions()
+    if (sessions.length === 0) throw new Error('сессий DSH не найдено')
+    picked = { adapter: dsh, session: sessions[0] }
+  }
+  const messages = userMessagesOf(picked.adapter, picked.session)
+  const analysis = analyzeTopicDrift(messages, { threshold, windowSize })
+  const savings = estimateSavings(picked.adapter, picked.session, messages, analysis.shifts)
+  if (flags.json) {
+    console.log(JSON.stringify({
+      session: {
+        id: picked.session.id,
+        title: picked.session.title,
+        client: picked.adapter.id,
+        cwd: picked.session.cwd,
+      },
+      messages: messages.length,
+      analysis,
+      savings,
+    }, null, 2))
+    return 0
+  }
+  console.log(bold(`Сессия: ${picked.session.title}`) + ` [${picked.adapter.id}]`)
+  console.log(`Сообщений пользователя: ${messages.length}`)
+  if (analysis.shifts.length === 0) {
+    ok('смены темы не обнаружены — чат можно продолжать')
+    return 0
+  }
+  for (const [index, shift] of analysis.shifts.entries()) {
+    const when = shift.time ? new Date(shift.time).toISOString().slice(11, 16) : '—'
+    const before = analysis.segments[index]
+    const after = analysis.segments[index + 1]
+    console.log('')
+    console.log(`⚠ Смена темы ${index + 1}: после сообщения ${shift.index} (${when}), сходство ${shift.similarity}`)
+    console.log(`   было:  ${segmentLabel(before)}`)
+    console.log(`   стало: ${segmentLabel(after)}`)
+    const saved = savings.details[index]?.saved
+    if (saved > 0) console.log(`   новый чат с этого места: ≈${humanTokens(saved)} токенов экономии`)
+  }
+  console.log('')
+  info(`итого смен темы: ${analysis.shifts.length}; суммарно при делении ≈${humanTokens(savings.total)} токенов (${savings.mode})`)
+  info('перенести контекст: ccliner chats digest <session> --out CHAT-CURRENT-STATE.md')
+  return 0
+}
+
+function driftAll(flags) {
+  const threshold = Number(flags.threshold ?? 0.2)
+  const windowSize = Number(flags.window ?? 3)
+  const rows = []
+  for (const session of dsh.listSessions()) {
+    let messages
+    try {
+      messages = dsh.extractDigest(session).userRequests
+    } catch {
+      continue
+    }
+    if (messages.length < 4) continue
+    const analysis = analyzeTopicDrift(messages, { threshold, windowSize })
+    const savings = estimateSavings(dsh, session, messages, analysis.shifts)
+    rows.push({ session, messages, shifts: analysis.shifts, saved: savings.total })
+  }
+  rows.sort((a, b) => b.saved - a.saved)
+  if (flags.json) {
+    console.log(JSON.stringify(rows.map((row) => ({
+      id: row.session.id,
+      title: row.session.title,
+      messages: row.messages,
+      shifts: row.shifts,
+      savedTokens: row.saved,
+    })), null, 2))
+    return 0
+  }
+  if (rows.length === 0) {
+    warn('нет чатов с достаточным количеством сообщений')
+    return 0
+  }
+  printTable(
+    ['Чат', 'Сообщ.', 'Смен темы', 'Экономия', 'Вердикт'],
+    rows.map((row) => [
+      row.session.title.slice(0, 44),
+      row.messages.length,
+      row.shifts.length,
+      row.shifts.length ? `≈${humanTokens(row.saved)}` : '—',
+      row.shifts.length >= 2 || row.saved > 20_000 ? 'делить' : 'ок',
+    ]),
+  )
+  info('подробности: ccliner chats drift <session>')
+  return 0
+}
+
+function drift(args, flags) {
+  try {
+    if (flags.all) return driftAll(flags)
+    return driftOne(args?.[0], flags)
+  } catch (error) {
+    warn(error.message)
+    return 1
+  }
+}

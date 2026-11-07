@@ -6,6 +6,7 @@ import { renderLazyWrapper } from '../lazy/template.js'
 import { backupPaths } from '../util/backup.js'
 import { DATA_HOME, ensureDir, exists, readJson, writeFile, timeAgo, ageDays } from '../util/files.js'
 import { sanitizeName } from '../util/naming.js'
+import { recordArtifact } from '../util/manifest.js'
 import { printTable, info, ok, warn, bold, dim } from '../log.js'
 
 export const VALUE_FLAGS = ['root', 'client', 'idle', 'server', 'out', 'min-tokens']
@@ -138,6 +139,7 @@ async function lazy(serverName, flags) {
     upstream: { command: server.command, args: server.args, env: server.env },
     idleMs,
   }))
+  recordArtifact({ kind: 'lazy-proxy', action: 'create', path: outFile, meta: { server: server.name } })
   ok(`ленивый прокси: ${outFile}`)
 
   // проверяем, что прокси поднимается и отдаёт ровно 2 инструмента
