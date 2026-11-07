@@ -8,13 +8,13 @@ import { printTable, info, ok, warn, bold, dim } from '../log.js'
 
 export const VALUE_FLAGS = ['root', 'out', 'min-age', 'limit']
 
-const HELP = `${bold('ccliner docs')} — порядок в Markdown
+const HELP = `${bold('tokenguard docs')} — порядок в Markdown
 
-  ccliner docs index [--root <dir>] [--write] [--json]
+  tokenguard docs index [--root <dir>] [--write] [--json]
       Построить INDEX.md: заголовки, краткие описания, дубли, осиротевшие
       и устаревшие документы.
 
-  ccliner docs check [--root <dir>] [--json] [--strict]
+  tokenguard docs check [--root <dir>] [--json] [--strict]
       Проверить документацию: битые ссылки, противоречащие значения,
       дубли текста/заголовков, устаревшие «актуально на», конфликты статусов.
 `
@@ -145,7 +145,7 @@ function renderIndex(data) {
   }
   if (duplicates.length === 0 && stale.length === 0 && orphans.length === 0) lines.push('Всё чисто.')
   lines.push('')
-  lines.push('_Сгенерировано ccliner. Ссылки проверяй командой `ccliner docs check`._')
+  lines.push('_Сгенерировано tokenguard. Ссылки проверяй командой `tokenguard docs check`._')
   return `${lines.join('\n')}\n`
 }
 

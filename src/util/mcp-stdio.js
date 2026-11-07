@@ -83,7 +83,7 @@ export function probeMcpServer({ command, args = [], env = {}, cwd, timeoutMs = 
         const init = await request('initialize', {
           protocolVersion: PROTOCOL_VERSION,
           capabilities: {},
-          clientInfo: { name: 'ccliner', version: '0.1.0' },
+          clientInfo: { name: 'tokenguard', version: '0.1.0' },
         })
         send({ jsonrpc: '2.0', method: 'notifications/initialized' })
         const listed = await request('tools/list', {})

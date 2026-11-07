@@ -242,6 +242,81 @@ export function usageTimeline(session) {
   return timeline
 }
 
+/** Агрегаты по событиям за период: запросы, токены, дни, инструменты. */
+export function eventStats(session, since = 0) {
+  const events = getEvents(session)
+  const byDay = new Map()
+  const tools = new Map()
+  const models = new Set()
+  let requests = 0
+  let inputTokens = 0
+  let cacheReadTokens = 0
+  let outputTokens = 0
+  for (const event of events) {
+    if (typeof event.time === 'number' && event.time < since) continue
+    if (event.type === 'request/header') {
+      const model = event.data?.header?.config?.model
+      if (model) models.add(String(model))
+      continue
+    }
+    if (event.type === 'assistant/message') {
+      const usage = event.data?.usage
+      if (!usage) continue
+      const input = usage.inputTokens ?? 0
+      const cache = usage.cacheReadTokens ?? 0
+      const output = usage.outputTokens ?? 0
+      requests += 1
+      inputTokens += input
+      cacheReadTokens += cache
+      outputTokens += output
+      const day = new Date(event.time ?? Date.now()).toISOString().slice(0, 10)
+      const bucket = byDay.get(day) ?? { requests: 0, inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 }
+      bucket.requests += 1
+      bucket.inputTokens += input
+      bucket.cacheReadTokens += cache
+      bucket.outputTokens += output
+      byDay.set(day, bucket)
+    } else if (event.type === 'tool/call') {
+      const name = String(event.data?.name ?? event.data?.tool ?? '?')
+      tools.set(name, (tools.get(name) ?? 0) + 1)
+    }
+  }
+  return { byDay, tools, models, requests, inputTokens, cacheReadTokens, outputTokens, promptTokens: inputTokens + cacheReadTokens }
+}
+
+/** Пары tool/call → tool/result для анализа дублей. */
+export function toolCalls(session, since = 0) {
+  const events = getEvents(session)
+  const calls = new Map()
+  const results = new Map()
+  for (const event of events) {
+    if (typeof event.time === 'number' && event.time < since) continue
+    if (event.type === 'tool/call') {
+      const callId = event.data?.callId
+      if (!callId) continue
+      const name = String(event.data?.name ?? event.data?.tool ?? '?')
+      const args = parseArguments(event.data?.arguments ?? event.data?.input ?? {})
+      calls.set(callId, { callId, name, argsKey: stableArgsKey(name, args), time: event.time ?? 0 })
+    } else if (event.type === 'tool/result') {
+      const callId = event.data?.toolCallId ?? event.data?.message?.toolCallId
+      if (!callId) continue
+      const text = messageText(event.data?.message?.content)
+      results.set(callId, text)
+    }
+  }
+  return { calls, results }
+}
+
+function stableArgsKey(name, args) {
+  if (name === 'bash' && typeof args?.command === 'string') return args.command.trim()
+  if (typeof args?.file_path === 'string') return `${args.file_path}|${args.offset ?? ''}|${args.limit ?? ''}`
+  try {
+    return JSON.stringify(args ?? {})
+  } catch {
+    return String(args)
+  }
+}
+
 /** Использование MCP-инструментов: сервер → вызовы и последнее использование. */
 function parseArguments(value) {
   if (!value) return {}

@@ -11,21 +11,23 @@ import { printTable, info, ok, warn, bold, dim } from '../log.js'
 
 export const VALUE_FLAGS = ['root', 'client', 'idle', 'server', 'out', 'min-tokens']
 
-const HELP = `${bold('ccliner mcp')} — аудит MCP и ленивый режим
+const HELP = `${bold('tokenguard mcp')} — аудит MCP и ленивый режим
 
-  ccliner mcp audit [--probe] [--json]
+  tokenguard mcp audit [--probe] [--json]
       Найти MCP-конфиги всех клиентов, посчитать инструменты и токены схем (--probe),
       показать фактическое использование и предложить ленивый режим.
 
-  ccliner mcp lazy <server> [--client <клиент>] [--idle 10] [--apply]
+  tokenguard mcp lazy <server> [--client <клиент>] [--idle 10] [--apply]
+  tokenguard mcp lazy --all [--apply]
       Сгенерировать ленивый прокси (2 инструмента, запуск по требованию)
       и, для JSON-клиентов, сразу переписать конфиг (с бэкапом).
+      --all — перевести все stdio-серверы, кроме уже ленивых.
 `
 
 export async function run(positional, flags) {
   const sub = positional[0]
   if (sub === 'audit') return audit(flags)
-  if (sub === 'lazy') return lazy(positional[1], flags)
+  if (sub === 'lazy') return flags.all ? lazyAll(flags) : lazy(positional[1], flags)
   console.log(HELP)
   return 0
 }
@@ -92,7 +94,7 @@ async function audit(flags) {
   printTable(['Клиент', 'Сервер', 'Транспорт', 'Инстр.', '~Токенов', 'Вызовов', 'Последний', 'Вердикт'], rows)
   if (probe) {
     info(`всего серверов: ${totals.servers}, опрошено: ${totals.probed}, инструментов: ${totals.tools}, схемы ≈ ${totals.tokens} токенов`)
-    if (totals.lazy > 0) info(`кандидатов в lazy-режим: ${totals.lazy} — «ccliner mcp lazy <server>» даёт −(токены на запрос)`)
+    if (totals.lazy > 0) info(`кандидатов в lazy-режим: ${totals.lazy} — «tokenguard mcp lazy <server>» даёт −(токены на запрос)`)
   } else {
     info(`всего серверов: ${totals.servers}. Запусти с --probe, чтобы измерить инструменты и токены схем.`)
   }
@@ -101,7 +103,7 @@ async function audit(flags) {
 
 async function lazy(serverName, flags) {
   if (!serverName) {
-    warn('укажи имя сервера: ccliner mcp lazy <server>')
+    warn('укажи имя сервера: tokenguard mcp lazy <server>')
     return 1
   }
   const root = flags.root ? String(flags.root) : process.cwd()
@@ -190,4 +192,63 @@ function renderDshPatch(name, wrapper, idleMs) {
     '        toolCallTimeoutMs: 180000',
   ]
   return lines.join('\n')
+}
+
+/** Перевести в ленивый режим все stdio-серверы из всех найденных конфигов. */
+async function lazyAll(flags) {
+  const root = flags.root ? String(flags.root) : process.cwd()
+  const configs = await discoverConfigs({ root })
+  const done = []
+  const dshSnippets = []
+  for (const config of configs) {
+    for (const server of config.servers) {
+      if (server.lazyWrapper) {
+        done.push({ client: config.client, name: server.name, status: 'уже ленивый' })
+        continue
+      }
+      if (server.transport !== 'stdio' || !server.command) {
+        done.push({ client: config.client, name: server.name, status: 'пропущен (не stdio)' })
+        continue
+      }
+      const idleMinutes = Number(flags.idle ?? 10)
+      const idleMs = Number.isFinite(idleMinutes) && idleMinutes > 0 ? idleMinutes * 60_000 : 600_000
+      const outFile = path.join(DATA_HOME, 'lazy', sanitizeName(server.name), 'server.cjs')
+      ensureDir(path.dirname(outFile))
+      writeFile(outFile, renderLazyWrapper({
+        serverName: server.name,
+        upstream: { command: server.command, args: server.args, env: server.env },
+        idleMs,
+      }))
+      recordArtifact({ kind: 'lazy-proxy', action: 'create', path: outFile, meta: { server: server.name, auto: true } })
+      const probe = await probeMcpServer({ command: process.execPath, args: [outFile], timeoutMs: 20_000 })
+      const status = probe.ok ? `прокси ок (${probe.tools.length} инстр.)` : `ошибка: ${probe.error}`
+      if (config.format === 'json') {
+        if (flags.apply) {
+          const backup = backupPaths([config.file], 'mcp-config')
+          const data = readJson(config.file) ?? {}
+          const key = config.client.includes('VS Code') ? 'servers' : 'mcpServers'
+          data[key] = data[key] ?? {}
+          data[key][server.name] = { command: process.execPath, args: [outFile] }
+          writeFile(config.file, `${JSON.stringify(data, null, 2)}\n`)
+          done.push({ client: config.client, name: server.name, status: `${status}; конфиг обновлён (бэкап ${backup})` })
+        } else {
+          done.push({ client: config.client, name: server.name, status: `${status}; добавь --apply для правки конфига` })
+        }
+      } else {
+        done.push({ client: config.client, name: server.name, status: status })
+        dshSnippets.push(renderDshPatch(server.name, outFile, idleMs))
+      }
+    }
+  }
+  printTable(
+    ['Клиент', 'Сервер', 'Результат'],
+    done.map((item) => [item.client, item.name, item.status]),
+  )
+  if (dshSnippets.length > 0) {
+    console.log('')
+    info('для DSH вставь эти блоки в ~/.dsh/profiles/<profile>/cordis.patch.yml:')
+    console.log(dshSnippets.join('\n\n'))
+  }
+  if (done.length === 0) warn('MCP-серверы не найдены')
+  return 0
 }

@@ -1,4 +1,4 @@
-/** artifacts: что создал ccliner — посмотреть и безопасно удалить. */
+/** artifacts: что создал tokenguard — посмотреть и безопасно удалить. */
 import fs from 'node:fs'
 import path from 'node:path'
 import { dataHome, markDeleted, readManifest, sizeOf } from '../util/manifest.js'
@@ -15,14 +15,14 @@ const KIND_DIRS = [
   ['archive', 'archive'],
 ]
 
-const HELP = `${bold('ccliner artifacts')} — реестр того, что сделал ccliner
+const HELP = `${bold('tokenguard artifacts')} — реестр того, что сделал tokenguard
 
-  ccliner artifacts list [--kind backup|digest|lazy-proxy|archive|docs-index] [--json]
+  tokenguard artifacts list [--kind backup|digest|lazy-proxy|archive|docs-index] [--json]
       Показать созданные артефакты, их размер и возраст.
 
-  ccliner artifacts clean (--all | --kind <тип> | --older-than <дней>) [--apply]
+  tokenguard artifacts clean (--all | --kind <тип> | --older-than <дней>) [--apply]
       Безопасно удалить артефакты. Без --apply — только показать.
-      Удаляются только файлы внутри каталога ccliner (~/.ccliner).
+      Удаляются только файлы внутри каталога tokenguard (~/.tokenguard).
 `
 
 export async function run(positional, flags) {
@@ -87,7 +87,7 @@ function list(flags) {
   }
   const renames = readManifest().filter((record) => record.kind === 'session-rename')
   if (rows.length === 0 && renames.length === 0) {
-    info('ccliner пока ничего не создавал (или всё уже удалено)')
+    info('tokenguard пока ничего не создавал (или всё уже удалено)')
     return 0
   }
   if (rows.length > 0) {
@@ -98,7 +98,7 @@ function list(flags) {
         humanBytes(row.size),
         row.ts ? timeAgo(row.ts) : '—',
         row.unregistered ? 'найден на диске' : row.action,
-        row.path ? row.path.replace(dataHome(), '~/.ccliner') : '—',
+        row.path ? row.path.replace(dataHome(), '~/.tokenguard') : '—',
       ]),
     )
     const deletable = rows.filter((row) => DELETABLE.has(row.kind))
@@ -106,7 +106,7 @@ function list(flags) {
     info(`всего артефактов: ${rows.length}; можно удалить: ${deletable.length} (${humanBytes(total)})`)
   }
   if (renames.length > 0) {
-    info(`переименований сессий: ${renames.length} (не удаляются; бэкапы лежат в ~/.ccliner/backups)`)
+    info(`переименований сессий: ${renames.length} (не удаляются; бэкапы лежат в ~/.tokenguard/backups)`)
   }
   return 0
 }
@@ -124,7 +124,7 @@ function clean(flags) {
   const total = rows.reduce((sum, row) => sum + row.size, 0)
   if (!flags.apply) {
     info(`dry-run: будет удалено ${rows.length} артефактов (${humanBytes(total)}):`)
-    for (const row of rows.slice(0, 50)) console.log(`  • [${row.kind}] ${row.path.replace(dataHome(), '~/.ccliner')} — ${humanBytes(row.size)}`)
+    for (const row of rows.slice(0, 50)) console.log(`  • [${row.kind}] ${row.path.replace(dataHome(), '~/.tokenguard')} — ${humanBytes(row.size)}`)
     info('добавь --apply, чтобы выполнить')
     return 0
   }
@@ -135,7 +135,7 @@ function clean(flags) {
   for (const row of rows) {
     const target = path.resolve(row.path)
     if (!(target === base || target.startsWith(`${base}${path.sep}`))) {
-      warn(`пропущено (вне каталога ccliner): ${row.path}`)
+      warn(`пропущено (вне каталога tokenguard): ${row.path}`)
       continue
     }
     try {

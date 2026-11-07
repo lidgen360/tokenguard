@@ -15,14 +15,14 @@ const IGNORE = new Set([
   'Library', 'Applications', 'Pictures', 'Movies', 'Music', 'Downloads', 'Documents',
 ])
 
-const HELP = `${bold('ccliner projects')} — мёртвые и незавершённые проекты
+const HELP = `${bold('tokenguard projects')} — мёртвые и незавершённые проекты
 
-  ccliner projects scan [--root <dir>] [--max-depth 3] [--json]
+  tokenguard projects scan [--root <dir>] [--max-depth 3] [--json]
       Найти git-репозитории и оценить: последний коммит, незакоммиченное,
       TODO/FIXME, ветки → вердикт (активный / старый / спящий / мёртвый / незавершённый).
 
-  ccliner projects archive <path> [--apply] [--delete]
-      Архивация: git bundle + tar рабочего дерева + опись в ~/.ccliner/archive.
+  tokenguard projects archive <path> [--apply] [--delete]
+      Архивация: git bundle + tar рабочего дерева + опись в ~/.tokenguard/archive.
       С --apply проект перемещается в архив; --delete удаляет кэши в перенесённой копии.
 `
 
@@ -146,7 +146,7 @@ async function scan(flags) {
 
 function archiveCommand(repoPath, flags) {
   if (!repoPath) {
-    warn('укажи путь к проекту: ccliner projects archive <path>')
+    warn('укажи путь к проекту: tokenguard projects archive <path>')
     return 1
   }
   const repo = path.resolve(String(repoPath))

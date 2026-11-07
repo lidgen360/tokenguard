@@ -83,3 +83,36 @@ test('dsh: extractDigest фильтрует служебные сообщени�
   assert.ok(digest.filesTouched.includes('/tmp/x/a.txt'))
   assert.equal(digest.assistantTexts.at(-1).text, 'готово')
 })
+
+test('dsh: eventStats собирает дни/инструменты, toolCalls находит дубли', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccliner-dsh-'))
+  const dir = path.join(root, '--test--', 'session-tools-1')
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, 'session.v4.jsonl.zstd')
+  const now = Date.now()
+  const args = JSON.stringify({ command: 'git status', description: 'status' })
+  const mkCall = (seq, callId) => ({ type: 'tool/call', seq, time: now, data: { callId, name: 'bash', arguments: args } })
+  const mkResult = (seq, callId) => ({
+    type: 'tool/result',
+    seq,
+    time: now,
+    data: { toolCallId: callId, message: { role: 'tool', content: [{ type: 'text', text: 'clean' }] } },
+  })
+  const events = [
+    { type: 'session', version: 4, id: 'session-tools-1', createdAt: now - 1000, cwd: '/tmp/x', origin: 'user' },
+    mkCall(0, 'call_a'), mkResult(1, 'call_a'),
+    mkCall(2, 'call_b'), mkResult(3, 'call_b'),
+    { type: 'assistant/message', seq: 4, time: now, data: { usage: { inputTokens: 10, cacheReadTokens: 90, outputTokens: 5 } } },
+  ]
+  fs.writeFileSync(file, compressBuffer(Buffer.from(events.map((event) => JSON.stringify(event)).join('\n') + '\n')))
+  const session = dsh.listSessions({ root })[0]
+  const stats = dsh.eventStats(session, 0)
+  assert.equal(stats.requests, 1)
+  assert.equal(stats.promptTokens, 100)
+  assert.equal(stats.tools.get('bash'), 2)
+  const { calls, results } = dsh.toolCalls(session)
+  assert.equal(calls.size, 2)
+  assert.equal(results.get('call_a'), 'clean')
+  const keys = [...calls.values()].map((call) => call.argsKey)
+  assert.equal(keys[0], keys[1])
+})

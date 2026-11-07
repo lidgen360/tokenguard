@@ -134,7 +134,7 @@ function parseDshPatch(file, parseYaml) {
         args: Array.isArray(config.args) ? config.args.map(String) : [],
         env: config.env && typeof config.env === 'object' ? config.env : {},
         url: config.url ? String(config.url) : null,
-        lazyWrapper: Array.isArray(config.args) && config.args.some((arg) => String(arg).includes('.ccliner') || String(arg).includes('ccliner')),
+        lazyWrapper: Array.isArray(config.args) && config.args.some((arg) => /mcp-lazy|\.tokenguard|\.tokenguard|tokenguard|\/lazy\//.test(String(arg))),
       })
     }
     for (const key of ['insert', 'children', 'plugins']) {

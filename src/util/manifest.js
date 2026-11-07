@@ -1,13 +1,13 @@
 /**
- * Реестр артефактов ccliner: что инструмент создал на диске.
+ * Реестр артефактов tokenguard: что инструмент создал на диске.
  * Нужен для честного «найди и удали то, что мы сделали» — без слепого rm по каталогам.
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { DATA_HOME, ensureDir } from './files.js'
+import { DATA_HOME, HOME, ensureDir } from './files.js'
 
 export function dataHome() {
-  return process.env.CCLINER_HOME || DATA_HOME
+  return process.env.TOKENGUARD_HOME || process.env.CCLINER_HOME || DATA_HOME
 }
 
 export function manifestFile() {
@@ -54,7 +54,13 @@ export function readManifest() {
     if (record.kind === 'deleted' && record.meta?.id) deleted.add(record.meta.id)
     else rows.push(record)
   }
-  return rows.filter((record) => !deleted.has(record.id))
+  const legacyHome = `${HOME}/.ccliner`
+  const currentHome = dataHome()
+  return rows
+    .filter((record) => !deleted.has(record.id))
+    .map((record) => (record.path && record.path.startsWith(legacyHome)
+      ? { ...record, path: record.path.replace(legacyHome, currentHome) }
+      : record))
 }
 
 /** Пометить артефакты удалёнными (append-only журнал). */

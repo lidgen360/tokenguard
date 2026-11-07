@@ -13,9 +13,9 @@ import { printTable, info, ok, warn, bold } from '../log.js'
 
 export const VALUE_FLAGS = ['root', 'max-depth']
 
-const HELP = `${bold('ccliner scan')} — сводка по окружению
+const HELP = `${bold('tokenguard scan')} — сводка по окружению
 
-  ccliner scan [--root <dir>] [--json]
+  tokenguard scan [--root <dir>] [--json]
       Что найдено: харнессы и чаты, MCP-оверхед, мёртвые проекты, проблемы docs.
 `
 
@@ -90,6 +90,6 @@ export async function run(positional, flags) {
   for (const finding of docs.findings.filter((item) => item.severity === 'high').slice(0, 8)) {
     console.log(`  ✖ ${finding.file}:${finding.line} — ${finding.message}`)
   }
-  if (docs.findings.length > 0) info('подробнее: ccliner docs check')
+  if (docs.findings.length > 0) info('подробнее: tokenguard docs check')
   return 0
 }

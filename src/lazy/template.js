@@ -8,7 +8,7 @@ export function renderLazyWrapper({ serverName, upstream, idleMs = 600_000 }) {
     env: upstream.env ?? {},
   }
   return `#!/usr/bin/env node
-/* ccliner lazy MCP proxy for "${config.serverName}" — generated file, do not edit by hand. */
+/* tokenguard lazy MCP proxy for "${config.serverName}" — generated file, do not edit by hand. */
 'use strict'
 const { spawn } = require('node:child_process')
 
@@ -43,7 +43,7 @@ let nextUpstreamId = 1
 const pending = new Map()
 
 function log(...args) {
-  if (process.env.CCLINER_LAZY_DEBUG) process.stderr.write('[ccliner-lazy] ' + args.join(' ') + '\\n')
+  if (process.env.CCLINER_LAZY_DEBUG) process.stderr.write('[tokenguard-lazy] ' + args.join(' ') + '\\n')
 }
 
 function writeClient(message) {
@@ -122,7 +122,7 @@ function ensureUpstream() {
     call('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: { name: 'ccliner-lazy', version: '0.1.0' },
+      clientInfo: { name: 'tokenguard-lazy', version: '0.1.0' },
     })
       .then(() => {
         spawned.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\\n')

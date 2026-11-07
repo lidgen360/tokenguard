@@ -10,10 +10,11 @@ import { DATA_HOME, ensureDir, humanBytes, mtimeMs, timeAgo, shortId } from '../
 import { sanitizeName } from '../util/naming.js'
 import { printTable, info, ok, warn, bold } from '../log.js'
 import { estimateTokens, humanTokens } from '../util/tokens.js'
-import { analyzeTopicDrift, segmentLabel } from '../util/topics.js'
+import { analyzeTopicDrift, segmentLabel, topKeywords } from '../util/topics.js'
 import { recordArtifact } from '../util/manifest.js'
+import { redactSecrets } from '../util/redact.js'
 
-export const VALUE_FLAGS = ['client', 'out', 'older-than', 'limit', 'threshold', 'window']
+export const VALUE_FLAGS = ['client', 'out', 'older-than', 'limit', 'threshold', 'window', 'keep-last', 'top', 'min-calls']
 
 const ADAPTERS = { dsh, 'claude-code': claudeCode, codex }
 
@@ -25,19 +26,25 @@ export async function run(positional, flags) {
   if (sub === 'archive') return archive(positional.slice(1), flags)
   if (sub === 'clean') return clean(flags)
   if (sub === 'drift') return drift(positional.slice(1), flags)
+  if (sub === 'tools') return tools(positional.slice(1), flags)
+  if (sub === 'compact') return compact(positional.slice(1), flags)
   console.log(HELP)
   return 0
 }
 
-const HELP = `${bold('ccliner chats')} — архивариус чатов
+const HELP = `${bold('tokenguard chats')} — архивариус чатов
 
-  ccliner chats list [--all] [--limit N] [--json]
-  ccliner chats digest <session> [--out файл] [--client dsh|claude-code|codex]
-  ccliner chats rename <session> "Новое название" [--force]
-  ccliner chats drift [<session>|--all] [--threshold 0.2] [--window 3] [--json]
+  tokenguard chats list [--all] [--limit N] [--json]
+  tokenguard chats digest <session> [--out файл] [--client dsh|claude-code|codex]
+  tokenguard chats rename <session> "Новое название" [--force]
+  tokenguard chats drift [<session>|--all] [--threshold 0.2] [--window 3] [--json]
       Детектор смены темы: где разговор ушёл в сторону и где выгодно начать новый чат.
-  ccliner chats archive <session...> [--apply]
-  ccliner chats clean --older-than 30 [--apply]
+  tokenguard chats tools [<session>] [--min-calls 2] [--json]
+      Повторные одинаковые tool-вызовы: сколько раз и сколько токенов на них ушло.
+  tokenguard chats compact <session> [--keep-last 8] [--out файл]
+      Сжать старую часть чата в конспект для продолжения в новом чате.
+  tokenguard chats archive <session...> [--apply]
+  tokenguard chats clean --older-than 30 [--apply]
 `
 
 function resolveAdapter(flags) {
@@ -122,11 +129,18 @@ function digest(ref, flags) {
   const outFile = flags.out
     ? path.resolve(String(flags.out))
     : path.join(DATA_HOME, 'digests', `${sanitizeName(session.client ?? adapter.id)}-${sanitizeName(session.id)}.md`)
-  const markdown = renderDigest(session, extracted)
+  let markdown = renderDigest(session, extracted)
+  let redactedRules = 0
+  if (!flags['no-redact']) {
+    const redacted = redactSecrets(markdown)
+    markdown = redacted.text
+    redactedRules = redacted.count
+  }
   ensureDir(path.dirname(outFile))
   fs.writeFileSync(outFile, markdown)
   recordArtifact({ kind: 'digest', action: 'create', path: outFile, meta: { session: session.id } })
   ok(`конспект: ${outFile}`)
+  if (redactedRules > 0) info(`секреты замаскированы: ${redactedRules} правил (отключить: --no-redact)`)
   info(`запросов: ${extracted.userRequests.length}, файлов: ${extracted.filesTouched.length}, команд: ${extracted.commands.length}`)
   return 0
 }
@@ -180,7 +194,7 @@ function renderDigest(session, extracted) {
 
 function rename(ref, title, flags) {
   if (!title || !title.trim()) {
-    warn('укажи новое название: ccliner chats rename <session> "Название"')
+    warn('укажи новое название: tokenguard chats rename <session> "Название"')
     return 1
   }
   const { session, adapter } = pickSession(ref, flags)
@@ -202,7 +216,7 @@ function rename(ref, title, flags) {
 
 function archive(refs, flags) {
   if (refs.length === 0) {
-    warn('укажи хотя бы одну сессию: ccliner chats archive <session...>')
+    warn('укажи хотя бы одну сессию: tokenguard chats archive <session...>')
     return 1
   }
   const targets = []
@@ -348,7 +362,7 @@ function driftOne(ref, flags) {
   }
   console.log('')
   info(`итого смен темы: ${analysis.shifts.length}; суммарно при делении ≈${humanTokens(savings.total)} токенов (${savings.mode})`)
-  info('перенести контекст: ccliner chats digest <session> --out CHAT-CURRENT-STATE.md')
+  info('перенести контекст: tokenguard chats digest <session> --out CHAT-CURRENT-STATE.md')
   return 0
 }
 
@@ -393,7 +407,7 @@ function driftAll(flags) {
       row.shifts.length >= 2 || row.saved > 20_000 ? 'делить' : 'ок',
     ]),
   )
-  info('подробности: ccliner chats drift <session>')
+  info('подробности: tokenguard chats drift <session>')
   return 0
 }
 
@@ -405,4 +419,129 @@ function drift(args, flags) {
     warn(error.message)
     return 1
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Повторные tool-вызовы и компакция контекста                        */
+/* ------------------------------------------------------------------ */
+
+function toolsReport(args, flags) {
+  const picked = args?.[0] ? pickSession(args[0], flags) : { adapter: dsh, session: dsh.listSessions()[0] }
+  if (!picked.session || picked.session.ambiguous) {
+    warn(`сессия «${args?.[0] ?? ''}» не найдена`)
+    return 1
+  }
+  const { calls, results } = dsh.toolCalls(picked.session)
+  const groups = new Map()
+  for (const call of calls.values()) {
+    const key = `${call.name}\u0000${call.argsKey}`
+    const group = groups.get(key) ?? { name: call.name, argsKey: call.argsKey, callIds: [], resultTokens: 0 }
+    group.callIds.push(call.callId)
+    group.resultTokens += estimateTokens(results.get(call.callId) ?? '')
+    groups.set(key, group)
+  }
+  const minCalls = Number(flags['min-calls'] ?? 2)
+  const duplicates = [...groups.values()]
+    .filter((group) => group.callIds.length >= minCalls)
+    .map((group) => ({
+      name: group.name,
+      args: group.argsKey.replace(/\n/g, ' ').slice(0, 80),
+      calls: group.callIds.length,
+      wastedTokens: Math.round((group.resultTokens * (group.callIds.length - 1)) / group.callIds.length),
+    }))
+    .sort((a, b) => b.wastedTokens - a.wastedTokens || b.calls - a.calls)
+  const totalWasted = duplicates.reduce((sum, item) => sum + item.wastedTokens, 0)
+  if (flags.json) {
+    console.log(JSON.stringify({ session: picked.session.id, calls: calls.size, duplicates, totalWasted }, null, 2))
+    return 0
+  }
+  console.log(bold(`Повторные вызовы: ${picked.session.title}`) + ` [${calls.size} вызовов]`)
+  if (duplicates.length === 0) {
+    ok('повторных одинаковых вызовов не найдено')
+    return 0
+  }
+  printTable(
+    ['Инструмент', 'Аргументы', 'Повторов', '≈Токенов впустую'],
+    duplicates.slice(0, Number(flags.top ?? 12)).map((item) => [item.name, item.args, item.calls, humanTokens(item.wastedTokens)]),
+  )
+  info(`групп дублей: ${duplicates.length}; оценка потерь: ≈${humanTokens(totalWasted)} токенов`)
+  return 0
+}
+
+function compactChat(args, flags) {
+  const picked = args?.[0] ? pickSession(args[0], flags) : { adapter: dsh, session: dsh.listSessions()[0] }
+  if (!picked.session || picked.session.ambiguous) {
+    warn(`сессия «${args?.[0] ?? ''}» не найдена`)
+    return 1
+  }
+  const extracted = picked.adapter.extractDigest(picked.session)
+  const messages = extracted.userRequests
+  if (messages.length === 0) {
+    warn('в сессии нет пользовательских сообщений')
+    return 1
+  }
+  const keepLast = Math.max(1, Number(flags['keep-last'] ?? 8))
+  const cutoff = Math.max(0, messages.length - keepLast)
+  const early = messages.slice(0, cutoff)
+  const tail = messages.slice(cutoff)
+  const earlyKeywords = topKeywords(early.map((message) => message.text), 10).map((item) => item.word)
+  const lines = []
+  lines.push(`# COMPACT: ${picked.session.title}`)
+  lines.push('')
+  lines.push(`Сессия: \`${picked.session.id}\` · клиент: ${picked.adapter.id} · сообщений: ${messages.length} · сжато до последних ${tail.length}`)
+  lines.push(`Дата сжатия: ${new Date().toISOString().slice(0, 10)}. Это контекст для нового чата, а не история переписки.`)
+  lines.push('')
+  lines.push(`## Ранняя часть (${early.length} сообщений, сжато)`)
+  lines.push('')
+  if (earlyKeywords.length > 0) lines.push(`Ключевые темы: ${earlyKeywords.join(', ')}.`)
+  lines.push('')
+  for (const [index, message] of early.entries()) {
+    lines.push(`${index + 1}. ${message.text.replace(/\n+/g, ' ').slice(0, 240)}`)
+  }
+  if (early.length === 0) lines.push('(пусто)')
+  lines.push('')
+  lines.push(`## Последние ${tail.length} сообщений (дословно)`)
+  lines.push('')
+  for (const message of tail) lines.push(`- ${message.text}`)
+  if (extracted.filesTouched.length > 0) {
+    lines.push('')
+    lines.push('## Затронутые файлы')
+    lines.push('')
+    for (const file of extracted.filesTouched.slice(0, 80)) lines.push(`- \`${file}\``)
+  }
+  const lastAssistant = extracted.assistantTexts.slice(-2)
+  if (lastAssistant.length > 0) {
+    lines.push('')
+    lines.push('## Последние выводы ассистента')
+    lines.push('')
+    for (const item of lastAssistant) lines.push(item.text.slice(0, 1200), '')
+  }
+  lines.push('')
+  lines.push('> Продолжи работу в новом чате: вставь этот документ первым сообщением (или приложи файлом).')
+  let markdown = `${lines.join('\n')}\n`
+  let redactedRules = 0
+  if (!flags['no-redact']) {
+    const redacted = redactSecrets(markdown)
+    markdown = redacted.text
+    redactedRules = redacted.count
+  }
+  const outFile = flags.out
+    ? path.resolve(String(flags.out))
+    : path.join(DATA_HOME, 'compact', `${sanitizeName(picked.session.client ?? picked.adapter.id)}-${sanitizeName(picked.session.id)}.md`)
+  ensureDir(path.dirname(outFile))
+  fs.writeFileSync(outFile, markdown)
+  recordArtifact({ kind: 'compact', action: 'create', path: outFile, meta: { session: picked.session.id } })
+  ok(`компакция: ${outFile}`)
+  info(`ранних сообщений сжато: ${early.length}; последних сохранено: ${tail.length}`)
+  if (redactedRules > 0) info(`секреты замаскированы: ${redactedRules} правил`)
+  info('открой новый чат и вставь файл первым сообщением — контекст будет короче')
+  return 0
+}
+
+function tools(args, flags) {
+  return toolsReport(args, flags)
+}
+
+function compact(args, flags) {
+  return compactChat(args, flags)
 }

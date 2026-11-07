@@ -4,7 +4,20 @@ import path from 'node:path'
 import os from 'node:os'
 
 export const HOME = os.homedir()
-export const DATA_HOME = process.env.CCLINER_HOME || path.join(HOME, '.ccliner')
+const LEGACY_HOME = path.join(HOME, '.ccliner')
+export const DATA_HOME = process.env.TOKENGUARD_HOME || process.env.CCLINER_HOME || path.join(HOME, '.tokenguard')
+
+/** Однократно перенести данные из старого каталога ~/.tokenguard в ~/.tokenguard. */
+export function migrateLegacyHome() {
+  if (process.env.TOKENGUARD_HOME || process.env.CCLINER_HOME) return null
+  try {
+    if (fs.existsSync(DATA_HOME) || !fs.existsSync(LEGACY_HOME)) return null
+    fs.renameSync(LEGACY_HOME, DATA_HOME)
+    return DATA_HOME
+  } catch {
+    return null
+  }
+}
 
 /** Раскрыть ~ в домашний каталог. */
 export function expand(input) {

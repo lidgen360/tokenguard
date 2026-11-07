@@ -31,7 +31,7 @@ export function readCompressedText(file) {
 
 /** Атомарно записать текст в zstd-файл. */
 export function writeCompressedText(file, text) {
-  const tmp = `${file}.ccliner-tmp`
+  const tmp = `${file}.tokenguard-tmp`
   fs.writeFileSync(tmp, compressBuffer(Buffer.from(text, 'utf8')))
   fs.renameSync(tmp, file)
 }

@@ -1,16 +1,27 @@
-/** ccliner — CLI for AI-harness context hygiene. */
+/** tokenguard — CLI for AI-harness context hygiene. */
 import { readFile } from 'node:fs/promises'
 import { bold, dim } from './log.js'
+import { migrateLegacyHome } from './util/files.js'
 
-export const HELP = `${bold('ccliner')} ${dim('— линтер контекста для AI-харнессов')}
+export const HELP = `${bold('tokenguard')} ${dim('— линтер контекста для AI-харнессов')}
 
 ${bold('Использование:')}
-  ccliner <команда> [опции]
-  ccliner version | --version
+  tokenguard <команда> [опции]
+  tokenguard version | --version
 
 ${bold('Команды:')}
   scan [--root <dir>] [--json]
       Обзор: найденные харнессы и сессии, MCP-оверхед, мёртвые проекты, состояние docs.
+
+  report [--days 7] [--json] [--pricing <file>]
+      Профайлер токенов: по дням, сессиям и инструментам; оценка стоимости.
+
+  budget set --daily 20M [--weekly 100M]
+  budget status | check
+      Бюджет токенов: расход, остаток, прогноз; check — код 1 при перерасходе.
+
+  guard install | status | check [--root <dir>]
+      Правило экономии контекста в AGENTS.md и проверка дрейфа темы.
 
   chats list [--all] [--json] [--limit N]
   chats digest <session> [--out <file>] [--client dsh|claude-code|codex]
@@ -36,16 +47,16 @@ ${bold('Команды:')}
 
   artifacts list [--kind <тип>] [--json]
   artifacts clean (--all | --kind <тип> | --older-than <дней>) [--apply]
-      Что создал ccliner (бэкапы, конспекты, прокси, архивы) и безопасное удаление.
+      Что создал tokenguard (бэкапы, конспекты, прокси, архивы) и безопасное удаление.
 
 ${bold('Принципы:')}
   • по умолчанию ничего не меняется (dry-run), изменения — только с --apply;
-  • перед любым изменением делается бэкап в ~/.ccliner/backups;
+  • перед любым изменением делается бэкап в ~/.tokenguard/backups;
   • живые сессии (изменённые <2 мин назад) не трогаются без --force;
   • никаких сетевых вызовов без явных флагов.
 
 ${bold('Переменные окружения:')}
-  CCLINER_HOME   каталог данных ccliner (по умолчанию ~/.ccliner)
+  CCLINER_HOME   каталог данных tokenguard (по умолчанию ~/.tokenguard)
   NO_COLOR       отключить цвета
   CCLINER_DEBUG  показать стек ошибок
 `
@@ -81,22 +92,27 @@ const LOADERS = {
   projects: () => import('./commands/projects.js'),
   docs: () => import('./commands/docs.js'),
   artifacts: () => import('./commands/artifacts.js'),
+  report: () => import('./commands/report.js'),
+  budget: () => import('./commands/budget.js'),
+  guard: () => import('./commands/guard.js'),
 }
 
 export async function main(argv) {
+  const migrated = migrateLegacyHome()
+  if (migrated) console.log(`ℹ данные перенесены: ~/.ccliner → ${migrated.replace(process.env.HOME ?? '', '~')}`)
   if (argv.length === 0 || argv[0] === 'help' || argv[0] === '--help' || argv[0] === '-h') {
     console.log(HELP)
     return 0
   }
   if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
     const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-    console.log(`ccliner ${pkg.version}`)
+    console.log(`tokenguard ${pkg.version}`)
     return 0
   }
   const command = argv[0]
   const load = LOADERS[command]
   if (!load) {
-    console.error(`ccliner: неизвестная команда «${command}». Запусти ccliner help`)
+    console.error(`tokenguard: неизвестная команда «${command}». Запусти tokenguard help`)
     return 1
   }
   const module = await load()

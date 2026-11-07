@@ -1,4 +1,4 @@
-/** Бэкап перед изменениями: tar.gz в ~/.ccliner/backups (или CCLINER_HOME). */
+/** Бэкап перед изменениями: tar.gz в ~/.tokenguard/backups (или CCLINER_HOME). */
 import path from 'node:path'
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
