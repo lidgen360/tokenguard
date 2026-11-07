@@ -1,0 +1,22 @@
+{
+  "name": "ccliner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Context liner for AI coding harnesses: safe chat archivist, meaningful chat rename, lazy MCP, dead-project scan, Markdown index and contradictions check.",
+  "type": "module",
+  "bin": {
+    "ccliner": "./bin/ccliner.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "lint": "node --check bin/ccliner.js && find src -name '*.js' -print0 | xargs -0 -n1 node --check"
+  },
+  "dependencies": {
+    "smol-toml": "^1.3.1",
+    "yaml": "^2.6.1"
+  },
+  "license": "MIT"
+}
