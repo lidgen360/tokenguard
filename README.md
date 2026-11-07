@@ -38,6 +38,32 @@ ccliner измеряет этот оверхед и уменьшает его б
 | `ccliner docs index` | Построить INDEX.md: заголовки, описания, дубли, осиротевшие, устаревшие |
 | `ccliner docs check` | Битые ссылки, противоречащие значения (порты/версии), дубли текста, устаревшие «актуально на» |
 
+
+## Установка и вызов
+
+```bash
+cd ~/Sites/ccliner
+npm install       # зависимости (yaml, smol-toml)
+npm link          # ставит команду ccliner в PATH
+ccliner version
+```
+
+Без установки: `node ~/Sites/ccliner/bin/ccliner.js <команда>`.
+
+Откуда вызывать: из любой папки — команда работает с текущим каталогом либо с `--root`:
+
+```bash
+cd ~/Sites/Lidogenerator && ccliner scan
+ccliner docs check --root ~/Sites/Lidogenerator
+ccliner chats drift
+```
+
+Изнутри агента (DSH/Claude Code) ничего вызывать вручную не нужно: правило в `AGENTS.md`
+проекта просит агента проверить `ccliner chats drift` перед продолжением длинного чата.
+
+Как регулярный сервис (опционально): `launchd`/`cron` раз в неделю —
+`ccliner scan --root ~/Sites` и `ccliner artifacts clean --older-than 30 --apply`.
+
 ## Быстрый старт
 
 Требуется Node.js ≥ 20 (zstd — встроенный, для Node < 23.8 нужна утилита `zstd`
