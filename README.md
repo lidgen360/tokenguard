@@ -122,6 +122,40 @@ tokenguard chats drift --all           # какие чаты давно пора
 оценка экономии по usage из логов (в DSH) или по объёму текста (в остальных
 харнессах). Рекомендация всегда сопровождается оценкой и не меняет ничего сама.
 
+## Хук для DeepSeek Harness
+
+`bin/tokenguard-dsh-hook.js` — UserPromptSubmit-хук: на каждом запросе запускает `chats drift` и добавляет
+в контекст модели маркер `[tokenguard-drift]` с предупреждением. Агент обязан вывести его первым блоком
+ответа, поэтому «смена темы — создать новый чат?» появляется в чате без ручных команд.
+
+Подключение (Web-профиль DSH):
+
+1. Поставить мост хуков: `dsh plugin --profile web add <dsh-checkout>/packages/experimental/hooks-claude-code`
+2. Создать `~/.dsh/hooks/tokenguard-hooks.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "node /Users/ila/Sites/tokenguard/bin/tokenguard-dsh-hook.js", "timeout": 10 } ] }
+    ]
+  }
+}
+```
+
+3. Строка в `~/.dsh/profiles/web/cordis.patch.yml`:
+
+```yaml
+- insert:
+    - id: hooks-claude-code
+      name: '@deepseek-ai/dsh-hooks-claude-code'
+      config:
+        configPath: /Users/ila/.dsh/hooks/tokenguard-hooks.json
+```
+
+Хук молчит, пока дрейфа нет (модель не тратит контекст зря); при дрейфе добавляет ~200 символов.
+Стоимость проверки: ~1.4 с на запрос (чтение лога сессии).
+
 ## Профайлер, бюджет и guard
 
 ```bash
