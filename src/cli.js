@@ -23,6 +23,9 @@ ${bold('Команды:')}
   guard install | status | check [--root <dir>]
       Правило экономии контекста в AGENTS.md и проверка дрейфа темы.
 
+  autostart print [--os auto|darwin|linux|win32] [--out <dir>]
+      Готовые конфиги автозапуска: launchd, systemd, Task Scheduler.
+
   chats list [--all] [--json] [--limit N]
   chats digest <session> [--out <file>] [--client dsh|claude-code|codex]
   chats rename <session> <title> [--force]
@@ -95,6 +98,7 @@ const LOADERS = {
   report: () => import('./commands/report.js'),
   budget: () => import('./commands/budget.js'),
   guard: () => import('./commands/guard.js'),
+  autostart: () => import('./commands/autostart.js'),
 }
 
 export async function main(argv) {

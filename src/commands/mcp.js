@@ -1,16 +1,16 @@
 /** mcp: аудит MCP-серверов и перевод их в ленивый режим. */
 import fs from 'node:fs'
 import path from 'node:path'
-import { discoverConfigs, scanUsage } from '../adapters/mcp-configs.js'
+import { claudeDesktopConfigPath, discoverConfigs, scanUsage } from '../adapters/mcp-configs.js'
 import { probeMcpServer, schemasTokens } from '../util/mcp-stdio.js'
 import { renderLazyWrapper } from '../lazy/template.js'
 import { backupPaths } from '../util/backup.js'
-import { DATA_HOME, ensureDir, exists, readJson, writeFile, timeAgo, ageDays } from '../util/files.js'
+import { DATA_HOME, HOME, ensureDir, exists, readJson, writeFile, timeAgo, ageDays } from '../util/files.js'
 import { sanitizeName } from '../util/naming.js'
 import { recordArtifact } from '../util/manifest.js'
 import { printTable, info, ok, warn, bold, dim } from '../log.js'
 
-export const VALUE_FLAGS = ['root', 'client', 'idle', 'server', 'out', 'min-tokens']
+export const VALUE_FLAGS = ['root', 'client', 'idle', 'server', 'out', 'min-tokens', 'interval']
 
 const HELP = `${bold('tokenguard mcp')} — аудит MCP и ленивый режим
 
@@ -24,12 +24,17 @@ const HELP = `${bold('tokenguard mcp')} — аудит MCP и ленивый р�
       и, для JSON-клиентов, сразу переписать конфиг (с бэкапом).
       --all — перевести все stdio-серверы, кроме уже ленивых.
       --apply-dsh — точечно заменить блоки в профилях DSH (бэкап + проверка YAML).
+
+  tokenguard mcp watch [--once] [--interval 300] [--apply] [--apply-dsh]
+      Кроссплатформенный наблюдатель: ловит изменения MCP-конфигов и включает lazy.
+      Подходит для systemd/launchd/Task Scheduler; --once — один прогон.
 `
 
 export async function run(positional, flags) {
   const sub = positional[0]
   if (sub === 'audit') return audit(flags)
   if (sub === 'lazy') return flags.all ? lazyAll(flags) : lazy(positional[1], flags)
+  if (sub === 'watch') return watchCommand(flags)
   console.log(HELP)
   return 0
 }
@@ -205,7 +210,7 @@ function renderDshPatch(name, wrapper, idleMs) {
 }
 
 /** Перевести в ленивый режим все stdio-серверы из всех найденных конфигов. */
-async function lazyAll(flags) {
+export async function lazyAll(flags) {
   const root = flags.root ? String(flags.root) : process.cwd()
   const configs = await discoverConfigs({ root })
   const done = []
@@ -339,4 +344,92 @@ export async function patchDshProfile(file, server, wrapperFile, idleMs) {
 
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Кроссплатформенный наблюдатель за MCP-конфигами (без launchd). */
+async function watchCommand(flags) {
+  const root = flags.root ? path.resolve(String(flags.root)) : process.cwd()
+  const once = Boolean(flags.once)
+  const intervalSec = Math.max(30, Number(flags.interval ?? 300))
+  const runFlags = { ...flags, all: true }
+  const runOnce = async (reason) => {
+    info(`[watch] ${reason}: проверяю MCP-конфиги`)
+    await lazyAll(runFlags)
+  }
+  if (once) {
+    await runOnce('однократный запуск')
+    return 0
+  }
+  const targets = watchPaths(root)
+  info(`[watch] каталог проекта: ${root}; путей под наблюдением: ${targets.length}`)
+  let timer = null
+  let busy = false
+  const schedule = (reason) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(async () => {
+      if (busy) return
+      busy = true
+      try {
+        await runOnce(reason)
+      } catch (error) {
+        warn(`[watch] ошибка: ${error.message}`)
+      } finally {
+        busy = false
+      }
+    }, 1200)
+  }
+  const watchers = []
+  for (const target of targets) {
+    try {
+      const isDir = fs.statSync(target).isDirectory()
+      const recursive = isDir
+      try {
+        watchers.push(fs.watch(target, { recursive }, () => schedule(`изменён ${target}`)))
+      } catch {
+        watchers.push(fs.watch(target, () => schedule(`изменён ${target}`)))
+      }
+    } catch {
+      /* путь мог исчезнуть */
+    }
+  }
+  const poll = setInterval(() => schedule('плановый опрос'), intervalSec * 1000)
+  info(`[watch] слежу за изменениями; опрос каждые ${intervalSec}с; Ctrl+C — выход`)
+  await new Promise((resolve) => {
+    const stop = () => {
+      clearInterval(poll)
+      if (timer) clearTimeout(timer)
+      for (const watcher of watchers) {
+        try {
+          watcher.close()
+        } catch {
+          /* уже закрыт */
+        }
+      }
+      resolve()
+    }
+    process.once('SIGINT', stop)
+    process.once('SIGTERM', stop)
+  })
+  return 0
+}
+
+function watchPaths(root) {
+  const candidates = [
+    path.join(HOME, '.dsh', 'profiles'),
+    path.join(HOME, '.dsh', 'profiles', 'web', 'cordis.patch.yml'),
+    path.join(HOME, '.dsh', 'profiles', 'superagent', 'cordis.patch.yml'),
+    path.join(HOME, '.claude.json'),
+    path.join(HOME, '.claude'),
+    path.join(HOME, '.codex', 'config.toml'),
+    path.join(HOME, '.codex'),
+    path.join(HOME, '.gemini', 'settings.json'),
+    path.join(HOME, '.gemini'),
+    path.join(HOME, '.cursor', 'mcp.json'),
+    path.join(HOME, '.cursor'),
+    claudeDesktopConfigPath(),
+    path.join(root, '.mcp.json'),
+    path.join(root, '.cursor', 'mcp.json'),
+    path.join(root, '.vscode', 'mcp.json'),
+  ]
+  return [...new Set(candidates)].filter(exists)
 }

@@ -251,6 +251,28 @@ launchctl bootout     gui/$(id -u)/ai.tokenguard.mcpwatch   # выключить
 Формат адаптера простой: `detect / listSessions / extractDigest / renameSession`.
 Новые харнессы добавляются в `src/adapters/`.
 
+## Платформы
+
+| ОС | CLI | Автозапуск | Заметки |
+|---|---|---|---|
+| **macOS** | ✅ | `autostart print --os darwin` (launchd) или готовые агенты в `~/Sites/ops` | нативный путь Claude Desktop, WatchPaths-агент |
+| **Linux** | ✅ | `autostart print --os linux` (systemd user units) | `fs.watch` recursive при Node ≥ 20, плюс polling; `zstd` — нативно с Node ≥ 23.8 или пакет `zstd` |
+| **Windows** | ✅ | `autostart print --os win32` → `.bat` с `schtasks` | `tar` встроен в Win10+, пути `%USERPROFILE%\.dsh`, `%APPDATA%\Claude` |
+
+Что сделано для кроссплатформенности:
+
+- только Node-API и `path.join`, бинарь ставится через `npm link` (создаёт `.cmd`-шим на Windows);
+- пути Claude Desktop определяются по ОС (`Library/Application Support` на macOS, `%APPDATA%` на Windows, `~/.config` на Linux);
+- `mcp watch` — кроссплатформенный наблюдатель (`fs.watch` + опрос), подходит для systemd/launchd/Task Scheduler;
+- `autostart print` генерирует готовые конфиги для трёх ОС (launchd / systemd / `schtasks`);
+- бэкапы — через `tar` (есть в macOS/Linux и в Windows 10+).
+
+Требования: Node.js ≥ 20 (для нативного zstd — ≥ 23.8 либо утилита `zstd` в PATH),
+`git` для анализа проектов, `tar` для бэкапов.
+
+Ограничения: хуки DSH (`UserPromptSubmit`) — часть DSH и работают там, где работает DSH;
+machine-специфичные пути к проектам в сервисных файлах генерируются из `--root`.
+
 ## Принципы безопасности
 
 - **Dry-run по умолчанию.** Изменения только с `--apply`.
@@ -278,15 +300,16 @@ test/                 — node:test, фикстуры без реальных д
 npm test
 ```
 
-25 тестов: разбор Markdown, токены, чтение/переименование сессий DSH, поиск
-противоречий в docs, ленивый прокси (end-to-end с тестовым MCP-сервером),
-детектор смены темы, реестр артефактов, редакция секретов, размеры и агрегаты DSH.
+37 тестов: разбор Markdown, токены, сессии DSH, docs-противоречия, ленивый прокси,
+детектор смены темы, реестр артефактов, редакция секретов, агрегаты DSH,
+безопасный патчер профиля DSH и кроссплатформенный автозапуск.
 
 ## Дорожная карта
 
 - [x] `report` + `budget`: профайлер токенов и лимиты
 - [x] `mcp lazy --all`: массовый перевод MCP в ленивый режим
 - [x] WatchPaths-агент: новые MCP автоматически становятся ленивыми
+- [x] Кроссплатформенность: Windows/Linux пути, `mcp watch`, `autostart` для launchd/systemd/schtasks
 - [x] `--apply-dsh`: точечная правка профиля DSH с бэкапом и проверкой YAML
 - [x] `chats compact`: сжатие старой части чата
 - [x] `guard`: правило в AGENTS.md + проверка дрейфа

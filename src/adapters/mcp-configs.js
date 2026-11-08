@@ -36,6 +36,18 @@ function fromMcpServersObject(source) {
 }
 
 /** Собрать все найденные MCP-конфиги: [{client, file, format, servers}] */
+/** Путь к claude_desktop_config.json для macOS/Linux/Windows. */
+export function claudeDesktopConfigPath(platform = process.platform, env = process.env, home = HOME) {
+  if (platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+  }
+  if (platform === 'win32') {
+    const appData = env.APPDATA || path.join(home, 'AppData', 'Roaming')
+    return path.join(appData, 'Claude', 'claude_desktop_config.json')
+  }
+  return path.join(home, '.config', 'Claude', 'claude_desktop_config.json')
+}
+
 export async function discoverConfigs(options = {}) {
   const { root = process.cwd() } = options
   const found = []
@@ -93,10 +105,8 @@ export async function discoverConfigs(options = {}) {
     if (servers.length > 0) found.push({ client: clientLabel, file, format: 'json', servers })
   }
 
-  // Claude Desktop
-  const desktop = process.platform === 'darwin'
-    ? path.join(HOME, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
-    : path.join(HOME, '.config', 'Claude', 'claude_desktop_config.json')
+  // Claude Desktop (путь зависит от ОС)
+  const desktop = claudeDesktopConfigPath()
   if (exists(desktop)) {
     const data = readJson(desktop) ?? {}
     const servers = fromMcpServersObject(data.mcpServers)
