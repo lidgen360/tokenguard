@@ -12,7 +12,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "lint": "node --check bin/tokenguard.js && find src -name '*.js' -print0 | xargs -0 -n1 node --check"
   },
   "dependencies": {
