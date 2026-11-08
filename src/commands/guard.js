@@ -32,9 +32,13 @@ function guardBlock() {
   return `${MARK_BEGIN}
 ## Экономия контекста (tokenguard)
 
-- Если в запросе есть маркер \`[tokenguard-drift]\` — **первым блоком ответа** выведи:
-  \`⚠️ tokenguard: смена темы (N) — создать новый чат?\`
-  и предложи перенос состояния: \`tokenguard chats digest <session>\` (или \`tokenguard chats compact <session> --keep-last 8\`).
+- Если в запросе есть маркер \`[tokenguard-drift]\` — **первым блоком ответа** выведи
+  \`⚠️ tokenguard: смена темы (N) — создать новый чат?\`, затем **спроси пользователя через
+  интерактивный вопрос** (Да/Нет): «Создать новый чат с переносом контекста?».
+- Если пользователь ответил **Да**: обнови конспект (\`tokenguard chats digest <session>\` и
+  \`tokenguard chats compact <session> --keep-last 8 --out docs/CHAT-COMPACT.md\`) и создай новый чат
+  автоматически: \`node bin/tokenguard-dsh-new-chat.js --prompt "Прочитай docs/CHAT-COMPACT.md ..."\`
+  (Safari AppleScript: нажимает «Новая сессия», вставляет перенос и отправляет — ничего вручную).
 - Без маркера, перед продолжением длинного чата (≥10 сообщений): \`tokenguard chats drift --json\`.
 - Маркер вкладывает хук DSH (\`bin/tokenguard-dsh-hook.js\` через \`dsh-hooks-claude-code\`) — агент
   обязан его отработать, а не пропустить.

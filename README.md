@@ -122,6 +122,24 @@ tokenguard chats drift --all           # какие чаты давно пора
 оценка экономии по usage из логов (в DSH) или по объёму текста (в остальных
 харнессах). Рекомендация всегда сопровождается оценкой и не меняет ничего сама.
 
+## Автоматический новый чат (Safari)
+
+`bin/tokenguard-dsh-new-chat.js` создаёт новый чат в живом DSH GUI без CLI и без ручных шагов:
+
+```sh
+node bin/tokenguard-dsh-new-chat.js --prompt-file docs/CHAT-COMPACT.md
+node bin/tokenguard-dsh-new-chat.js --prompt "Перенос из чата: прочитай docs/CHAT-COMPACT.md"
+node bin/tokenguard-dsh-new-chat.js --dry-run          # только проверить вкладку и кнопки
+```
+
+Скрипт находит вкладку DSH в Safari (`DSH_WEB_URL`, по умолчанию `http://127.0.0.1:3080`),
+нажимает «Новая сессия», вставляет текст переноса в композер и отправляет. Вкладка не
+перезагружается, логин переиспользуется. Нужен включённый Safari → Develop → «Allow JavaScript
+from Apple Events».
+
+Полный сценарий агента: маркер `[tokenguard-drift]` → предупреждение → интерактивный вопрос
+«Создать новый чат?» (Да/Нет) → при Да: `chats digest` + `chats compact` + этот скрипт.
+
 ## Хук для DeepSeek Harness
 
 `bin/tokenguard-dsh-hook.js` — UserPromptSubmit-хук: на каждом запросе запускает `chats drift` и добавляет
