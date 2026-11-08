@@ -38,7 +38,7 @@ tokenguard измеряет этот оверхед и уменьшает его
 | `tokenguard artifacts clean --all` | Безопасно удалить артефакты tokenguard (dry-run по умолчанию) |
 | `tokenguard mcp audit [--probe]` | Найти MCP-конфиги, посчитать инструменты и токены их схем, показать использование |
 | `tokenguard mcp lazy <server>` | Сгенерировать ленивый прокси: 2 инструмента вместо всех, запуск по требованию |
-| `tokenguard mcp lazy --all` | Перевести в ленивый режим все stdio-серверы из всех конфигов |
+| `tokenguard mcp lazy --all [--apply] [--apply-dsh]` | Перевести в ленивый режим все stdio-серверы; `--apply-dsh` — точечно патчит профиль DSH |
 | `tokenguard projects scan` | Мёртвые/незавершённые проекты по git-метрикам |
 | `tokenguard projects archive <path>` | git bundle + tar + опись, опционально перенос в архив |
 | `tokenguard docs index` | Построить INDEX.md: заголовки, описания, дубли, осиротевшие, устаревшие |
@@ -214,6 +214,28 @@ tokenguard artifacts clean --all --apply      # удалить (только в�
 Удаляются только файлы внутри каталога tokenguard — это защита от «удали то, не знаю что».
 Переименования сессий показываются, но не удаляются: их бэкапы остаются в `~/.tokenguard/backups`.
 
+### Автоматический lazy для новых MCP (WatchPaths)
+
+launchd-агент `ai.tokenguard.mcpwatch` следит за конфигами MCP и при их изменении
+запускает `tokenguard mcp lazy --all --apply --apply-dsh`:
+
+- JSON-клиенты (Claude Code, Cursor, Gemini, VS Code) — конфиг переписывается сразу;
+- DSH — блок сервера в `cordis.patch.yml` заменяется точечно (бэкап + проверка YAML),
+  харнесс подхватит после перезапуска;
+- страховка — запуск раз в 15 минут (`StartInterval`), лог — `~/Sites/ops/logs/tokenguard-mcpwatch.log`.
+
+Файлы: `~/Sites/ops/ai.tokenguard.mcpwatch.plist`, `~/Sites/ops/tokenguard-mcpwatch.sh`.
+Управление:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/ai.tokenguard.mcpwatch   # прогнать сейчас
+launchctl bootout     gui/$(id -u)/ai.tokenguard.mcpwatch   # выключить
+```
+
+Ограничение: следятся глобальные конфиги (список в `WatchPaths`). Проектные
+`.mcp.json` в отдельных репозиториях охватываются, если добавить их путь в plist
+или запускать `tokenguard mcp lazy --all --apply` в каталоге проекта.
+
 ## Поддерживаемые харнессы
 
 | Харнесс | Чаты | Rename | MCP-конфиг |
@@ -264,6 +286,8 @@ npm test
 
 - [x] `report` + `budget`: профайлер токенов и лимиты
 - [x] `mcp lazy --all`: массовый перевод MCP в ленивый режим
+- [x] WatchPaths-агент: новые MCP автоматически становятся ленивыми
+- [x] `--apply-dsh`: точечная правка профиля DSH с бэкапом и проверкой YAML
 - [x] `chats compact`: сжатие старой части чата
 - [x] `guard`: правило в AGENTS.md + проверка дрейфа
 - [x] `chats tools`: поиск повторных tool-вызовов

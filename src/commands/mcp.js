@@ -1,4 +1,5 @@
 /** mcp: аудит MCP-серверов и перевод их в ленивый режим. */
+import fs from 'node:fs'
 import path from 'node:path'
 import { discoverConfigs, scanUsage } from '../adapters/mcp-configs.js'
 import { probeMcpServer, schemasTokens } from '../util/mcp-stdio.js'
@@ -18,10 +19,11 @@ const HELP = `${bold('tokenguard mcp')} — аудит MCP и ленивый р�
       показать фактическое использование и предложить ленивый режим.
 
   tokenguard mcp lazy <server> [--client <клиент>] [--idle 10] [--apply]
-  tokenguard mcp lazy --all [--apply]
+  tokenguard mcp lazy --all [--apply] [--apply-dsh]
       Сгенерировать ленивый прокси (2 инструмента, запуск по требованию)
       и, для JSON-клиентов, сразу переписать конфиг (с бэкапом).
       --all — перевести все stdio-серверы, кроме уже ленивых.
+      --apply-dsh — точечно заменить блоки в профилях DSH (бэкап + проверка YAML).
 `
 
 export async function run(positional, flags) {
@@ -170,7 +172,15 @@ async function lazy(serverName, flags) {
     return 0
   }
 
-  // DSH (yaml): безопаснее выдать готовый блок — форматирование профиля не трогаем
+  // DSH (yaml): с --apply-dsh точечно патчим блок, иначе печатаем готовый сниппет
+  if (flags['apply-dsh']) {
+    const result = patchDshProfile(config.file, server, outFile, idleMs)
+    if (result.changed) ok(`профиль DSH обновлён: ${config.file}`)
+    else warn(`профиль DSH не изменён: ${result.reason}`)
+    if (result.backup) info(`бэкап: ${result.backup}`)
+    info('DSH подхватит конфиг после перезапуска (AI-Stop + AI-Start)')
+    return 0
+  }
   console.log('')
   info('вставь этот блок в ~/.dsh/profiles/<profile>/cordis.patch.yml (вместо текущей записи сервера):')
   console.log(renderDshPatch(server.name, outFile, idleMs))
@@ -234,6 +244,15 @@ async function lazyAll(flags) {
         } else {
           done.push({ client: config.client, name: server.name, status: `${status}; добавь --apply для правки конфига` })
         }
+      } else if (flags['apply-dsh']) {
+        const patched = patchDshProfile(config.file, server, outFile, idleMs)
+        done.push({
+          client: config.client,
+          name: server.name,
+          status: patched.changed
+            ? `${status}; профиль обновлён (бэкап: ${patched.backup ?? '—'})`
+            : `${status}; ${patched.reason}`,
+        })
       } else {
         done.push({ client: config.client, name: server.name, status: status })
         dshSnippets.push(renderDshPatch(server.name, outFile, idleMs))
@@ -251,4 +270,73 @@ async function lazyAll(flags) {
   }
   if (done.length === 0) warn('MCP-серверы не найдены')
   return 0
+}
+
+/**
+ * Точечно заменить блок сервера в cordis.patch.yml на ленивую обёртку.
+ * Не переписывает весь YAML: заменяется только нужный блок, остальное и комментарии сохраняются.
+ * Перед записью — бэкап; после записи YAML проверяется парсером, при ошибке файл восстанавливается.
+ */
+export async function patchDshProfile(file, server, wrapperFile, idleMs) {
+  const text = fs.readFileSync(file, 'utf8')
+  const lines = text.split('\n')
+  const idLine = new RegExp(`^(\\s*)-\\s+id:\\s*mcp-${escapeRegExp(server.name)}\\s*$`)
+  let start = -1
+  let indent = ''
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = idLine.exec(lines[index])
+    if (match) {
+      start = index
+      indent = match[1]
+      break
+    }
+  }
+  if (start < 0) return { changed: false, reason: `блок mcp-${server.name} в профиле не найден` }
+  let end = lines.length
+  const indentLength = indent.length
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (!line.trim()) {
+      end = index
+      break
+    }
+    const leading = line.match(/^\s*/)[0].length
+    if (leading <= indentLength) {
+      end = index
+      break
+    }
+  }
+  const block = lines.slice(start, end).join('\n')
+  if (/(mcp-lazy|\/lazy\/|\.tokenguard|\/tokenguard\/|wrapper)/.test(block) && /server\.(mjs|cjs)/.test(block)) {
+    return { changed: false, reason: 'уже использует ленивую обёртку' }
+  }
+  const child = `${indent}  `
+  const inner = `${child}  `
+  const replacement = [
+    `${indent}- id: mcp-${server.name}`,
+    `${child}name: '@deepseek-ai/dsh-mcp-client'`,
+    `${child}config:`,
+    `${inner}serverName: ${JSON.stringify(server.name)}`,
+    `${inner}transport: ${JSON.stringify(server.transport ?? 'stdio')}`,
+    `${inner}command: ${JSON.stringify(process.execPath)}`,
+    `${inner}args: [${JSON.stringify(wrapperFile)}]`,
+    `${inner}env:`,
+    `${inner}  CCLINER_LAZY_IDLE_MS: '${idleMs}'`,
+    `${inner}toolCallTimeoutMs: 180000`,
+  ]
+  const nextLines = [...lines.slice(0, start), ...replacement, ...lines.slice(end)]
+  const nextText = nextLines.join('\n')
+  const { parse: parseYaml } = await import('yaml')
+  try {
+    parseYaml(nextText)
+  } catch (error) {
+    return { changed: false, reason: `результат не прошёл проверку YAML: ${error.message}` }
+  }
+  const backup = backupPaths([file], 'dsh-profile')
+  fs.writeFileSync(file, nextText, 'utf8')
+  return { changed: true, backup }
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
