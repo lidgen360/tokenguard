@@ -32,10 +32,12 @@ function guardBlock() {
   return `${MARK_BEGIN}
 ## Экономия контекста (tokenguard)
 
-- Перед продолжением длинного чата (≥10 сообщений) или после паузы: \`tokenguard chats drift --json\`.
-- Если дрейф темы найден — **первым блоком ответа** выведи заметное сообщение:
+- Если в запросе есть маркер \`[tokenguard-drift]\` — **первым блоком ответа** выведи:
   \`⚠️ tokenguard: смена темы (N) — создать новый чат?\`
   и предложи перенос состояния: \`tokenguard chats digest <session>\` (или \`tokenguard chats compact <session> --keep-last 8\`).
+- Без маркера, перед продолжением длинного чата (≥10 сообщений): \`tokenguard chats drift --json\`.
+- Маркер вкладывает хук DSH (\`bin/tokenguard-dsh-hook.js\` через \`dsh-hooks-claude-code\`) — агент
+  обязан его отработать, а не пропустить.
 - Лимиты бюджета не используются: не запускай и не предлагай \`tokenguard budget\`.
 ${MARK_END}`
 }
