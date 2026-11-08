@@ -6,14 +6,17 @@ import { renderAutostart } from '../src/commands/autostart.js'
 const NODE = '/usr/local/bin/node'
 const CLI = '/opt/tokenguard/bin/tokenguard.js'
 
+/** Сравнение путей независимо от разделителя ОС. */
+const norm = (value) => String(value).replace(/\\/g, '/')
+
 test('claudeDesktopConfigPath: macOS, Linux и Windows', () => {
   const mac = claudeDesktopConfigPath('darwin', {}, '/Users/me')
-  assert.ok(mac.includes('Library/Application Support/Claude'))
+  assert.ok(norm(mac).includes('Library/Application Support/Claude'))
   const linux = claudeDesktopConfigPath('linux', {}, '/home/me')
-  assert.equal(linux, '/home/me/.config/Claude/claude_desktop_config.json')
+  assert.equal(norm(linux), '/home/me/.config/Claude/claude_desktop_config.json')
   const win = claudeDesktopConfigPath('win32', { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }, 'C:\\Users\\me')
-  assert.ok(win.includes('AppData\\Roaming') || win.includes('AppData/Roaming'))
-  assert.ok(win.endsWith('claude_desktop_config.json'))
+  assert.ok(norm(win).includes('AppData/Roaming'))
+  assert.ok(norm(win).endsWith('Claude/claude_desktop_config.json'))
 })
 
 test('renderAutostart: launchd для macOS', () => {

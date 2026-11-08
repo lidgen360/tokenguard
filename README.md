@@ -48,10 +48,24 @@ tokenguard измеряет этот оверхед и уменьшает его
 ## Установка и вызов
 
 ```bash
+# macOS / Linux
 cd ~/Sites/tokenguard
 npm install       # зависимости (yaml, smol-toml)
 npm link          # ставит в PATH команды tokenguard и ccliner (алиас)
 tokenguard version
+
+# Linux (systemd user units)
+tokenguard autostart print --os linux --out ./services
+mkdir -p ~/.config/systemd/user && cp ./services/* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now tokenguard-weekly.timer tokenguard-mcpwatch.service
+
+# Windows (Task Scheduler)
+tokenguard autostart print --os win32 --out ./services
+# затем запустить от администратора:
+services\tokenguard-schtasks.bat
+
+# macOS (уже настроено через ~/Sites/ops)
 ```
 
 Старое имя `ccliner` сохранено как алиас. Данные автоматически переносятся

@@ -1,0 +1,22 @@
+# tokenguard Linux test image
+FROM node:22-bookworm-slim
+
+# deps for zstd, git, tar (в bookworm есть)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    zstd git tar ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# копируем пакет целиком (включая node_modules после npm ci)
+COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts 2>&1 | tail -3
+
+COPY . .
+
+# линк для глобальных команд tokenguard/ccliner
+RUN npm link 2>&1 | tail -2
+
+# дефолт — help
+ENTRYPOINT ["tokenguard"]
+CMD ["help"]
