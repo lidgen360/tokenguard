@@ -127,6 +127,7 @@ tokenguard chats drift --all           # какие чаты давно пора
 ```bash
 tokenguard report --days 7              # где ушли токены: дни, сессии, инструменты
 tokenguard report --days 30 --json      # машинный формат
+# лимиты опциональны; по умолчанию они отключены (budget.json отсутствует)
 tokenguard budget set --daily 20M --weekly 150M
 tokenguard budget status                # потрачено/лимит/прогноз
 tokenguard budget check                 # код 1 при перерасходе (launchd/cron)

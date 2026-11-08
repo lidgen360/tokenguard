@@ -32,10 +32,11 @@ function guardBlock() {
   return `${MARK_BEGIN}
 ## Экономия контекста (tokenguard)
 
-- Перед продолжением длинного чата или при явной смене темы: \`tokenguard chats drift\`.
-- Если смена темы найдена — предложи пользователю новый чат и перенеси состояние:
-  \`tokenguard chats compact <session> --keep-last 8\` (или \`tokenguard chats digest <session>\`).
-- Проверить бюджет: \`tokenguard budget status\`.
+- Перед продолжением длинного чата (≥10 сообщений) или после паузы: \`tokenguard chats drift --json\`.
+- Если дрейф темы найден — **первым блоком ответа** выведи заметное сообщение:
+  \`⚠️ tokenguard: смена темы (N) — создать новый чат?\`
+  и предложи перенос состояния: \`tokenguard chats digest <session>\` (или \`tokenguard chats compact <session> --keep-last 8\`).
+- Лимиты бюджета не используются: не запускай и не предлагай \`tokenguard budget\`.
 ${MARK_END}`
 }
 
@@ -101,7 +102,8 @@ function check(flags) {
   for (const [index, shift] of analysis.shifts.entries()) {
     console.log(`⚠ смена темы ${index + 1}: после сообщения ${shift.index} — было «${segmentLabel(analysis.segments[index])}», стало «${segmentLabel(analysis.segments[index + 1])}»`)
   }
-  info('рекомендация: начать новый чат и перенести состояние через tokenguard chats compact')
+  console.log(bold(`⚠️  tokenguard: смена темы (${analysis.shifts.length}) — создать новый чат?`))
+  info('перенести состояние: tokenguard chats digest <session> (или tokenguard chats compact <session> --keep-last 8)')
   return flags.strict ? 1 : 0
 }
 
