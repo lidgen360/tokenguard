@@ -4,7 +4,7 @@
  * Reads the bridge payload from stdin and prints protocol JSON on drift only.
  */
 import { readFileSync } from 'node:fs'
-import { buildDriftContext, hookOutput } from '../src/hooks/dsh-user-prompt.js'
+import { buildContextContext, buildDriftContext, hookOutput } from '../src/hooks/dsh-user-prompt.js'
 
 let payload = {}
 try {
@@ -12,6 +12,10 @@ try {
 } catch {
   process.exit(0)
 }
-const context = buildDriftContext(payload)
-if (context) process.stdout.write(JSON.stringify(hookOutput(context)))
+const parts = []
+const drift = buildDriftContext(payload)
+if (drift) parts.push(drift)
+const context = buildContextContext(payload)
+if (context) parts.push(context)
+if (parts.length > 0) process.stdout.write(JSON.stringify(hookOutput(parts.join('\n\n'))))
 process.exit(0)

@@ -4,7 +4,7 @@ import * as dsh from '../adapters/dsh.js'
 import { analyzeTopicDrift, segmentLabel } from '../util/topics.js'
 import { backupPaths } from '../util/backup.js'
 import { exists, readText, writeFile } from '../util/files.js'
-import { driftHookDisabled } from '../hooks/dsh-user-prompt.js'
+import { contextHookDisabled, driftHookDisabled } from '../hooks/dsh-user-prompt.js'
 import { printTable, info, ok, warn, bold } from '../log.js'
 
 export const VALUE_FLAGS = ['root', 'session', 'threshold', 'window']
@@ -86,6 +86,7 @@ function status(flags) {
   info(`AGENTS.md: ${file}`)
   info(`правило tokenguard: ${installed ? 'установлено' : 'нет (запусти guard install)'}`)
   info(`хук дрейфа: ${driftHookDisabled() ? 'отключён (config.json driftHook=false)' : 'включён'}`)
+  info(`контекстный хук: ${contextHookDisabled() ? 'выключен (config.json contextHook)' : 'включён'}`)
   const picked = latestSession(flags)
   if (picked) {
     const messages = picked.adapter.extractDigest(picked.session).userRequests

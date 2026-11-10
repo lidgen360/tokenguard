@@ -300,7 +300,8 @@ function configCheck({ dataHome: dir }) {
     } catch {
       return { status: 'fail', detail: 'config.json — битый JSON' }
     }
-    return { status: 'ok', detail: `driftHook: ${data.driftHook === false ? 'выключен' : 'включён'}` }
+    const context = data.contextHook === true ? `включён (порог ${data.contextThreshold ?? '350k'})` : 'выключен'
+    return { status: 'ok', detail: `driftHook: ${data.driftHook === false ? 'выключен' : 'включён'} · contextHook: ${context}` }
   })
 }
 
