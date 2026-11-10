@@ -326,7 +326,8 @@ async function verify(serverName, flags) {
     for (const server of config.servers) known.push({ client: config.client, server })
   }
   if (known.length === 0) {
-    warn('MCP-конфиги не найдены (DSH, Claude, Codex, Gemini, Cursor, VS Code)')
+    if (flags.json) console.log(JSON.stringify({ error: 'MCP-конфиги не найдены' }, null, 2))
+    else warn('MCP-конфиги не найдены (DSH, Claude, Codex, Gemini, Cursor, VS Code)')
     return 1
   }
   let targets
@@ -337,11 +338,15 @@ async function verify(serverName, flags) {
     targets = known.filter(({ client, server }) => server.name === serverName
       && (!clientFilter || client.toLowerCase().includes(clientFilter)))
     if (targets.length === 0) {
-      warn(`MCP-сервер «${serverName}» не найден в конфигах`)
+      const message = `MCP-сервер «${serverName}» не найден в конфигах`
+      if (flags.json) console.log(JSON.stringify({ error: message }, null, 2))
+      else warn(message)
       return 1
     }
   } else {
-    warn('укажи сервер или --all: tokenguard mcp verify <server> | tokenguard mcp verify --all')
+    const message = 'укажи сервер или --all: tokenguard mcp verify <server> | tokenguard mcp verify --all'
+    if (flags.json) console.log(JSON.stringify({ error: message }, null, 2))
+    else warn(message)
     return 1
   }
   const results = []
@@ -379,6 +384,10 @@ async function audit(flags) {
   const rows = []
   const totals = { servers: 0, probed: 0, tools: 0, tokens: 0, lazy: 0 }
   if (configs.length === 0) {
+    if (flags.json) {
+      console.log(JSON.stringify({ configs: [], rows: [], totals: { servers: 0, probed: 0, tools: 0, tokens: 0, lazy: 0 } }, null, 2))
+      return 0
+    }
     warn('MCP-конфиги не найдены (DSH, Claude, Codex, Gemini, Cursor, VS Code)')
     return 0
   }

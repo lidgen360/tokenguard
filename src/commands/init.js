@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DATA_HOME, HOME, exists } from '../util/files.js'
+import { DATA_HOME, HOME, exists, expand } from '../util/files.js'
 import { upsertGuard } from './guard.js'
 import { bold, dim, green, yellow, printTable, info, ok, warn } from '../log.js'
 
@@ -145,7 +145,7 @@ export async function run(positional, flags) {
     console.log(HELP)
     return 0
   }
-  const root = path.resolve(flags.root ? String(flags.root) : process.cwd())
+  const root = path.resolve(expand(flags.root ? String(flags.root) : process.cwd()))
   const steps = buildSteps({ root, home: HOME, dataHome: DATA_HOME, platform: process.platform })
   const applied = []
 

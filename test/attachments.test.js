@@ -141,6 +141,16 @@ test('scanData: отсутствующие каталоги — статус ski
   assert.deepEqual(data.objects, [])
 })
 
+test('scanData: пустой каталог сессий не делает вложения осиротевшими', () => {
+  const fixture = makeFixture({ objects: [{ hash: HASH_ORPHAN_OLD, ageDays: 30 }] })
+  const data = scanData({ attachmentsRoot: fixture.objectsRoot, sessionsRoot: fixture.sessionsRoot })
+
+  assert.equal(data.sessionsStatus, 'ok')
+  assert.equal(data.sessions.files, 0)
+  assert.equal(data.referencesKnown, false)
+  assert.equal(data.summary.orphans, null)
+})
+
 test('run list --json: отдаёт сводку в JSON', async () => {
   const fixture = makeFixture({
     objects: [

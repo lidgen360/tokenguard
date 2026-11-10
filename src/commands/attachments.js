@@ -154,7 +154,8 @@ export function scanData({ attachmentsRoot, sessionsRoot } = {}) {
     }
   }
   // Если сессии прочитать не удалось, ссылки неизвестны: осиротевшими не считаем.
-  const referencesKnown = sessionsStatus === 'ok' && unreadable === 0
+  // Пустой каталог сессий — не доказательство, что вложения осиротели: не удаляем.
+  const referencesKnown = sessionsStatus === 'ok' && unreadable === 0 && sessionCount > 0
 
   const objects = attachmentsStatus === 'ok' ? readObjects(objectsDir) : []
   for (const object of objects) {
@@ -306,10 +307,18 @@ function clean(flags) {
   }
   const data = scanData()
   if (data.attachmentsStatus === 'skip') {
+    if (flags.json) {
+      console.log(JSON.stringify({ skipped: true, attachmentsRoot: data.attachmentsRoot, reason: 'вложения DSH не найдены' }, null, 2))
+      return 0
+    }
     info(`вложения DSH не найдены: ${data.attachmentsRoot} — пропуск`)
     return 0
   }
   if (!data.referencesKnown) {
+    if (flags.json) {
+      console.log(JSON.stringify({ skipped: true, attachmentsRoot: data.attachmentsRoot, reason: 'сессии DSH прочитать не удалось — удаление отменено' }, null, 2))
+      return 0
+    }
     warn('не удалось достоверно прочитать сессии DSH — удаление отменено (ничего не тронуто)')
     return 0
   }

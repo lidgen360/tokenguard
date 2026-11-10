@@ -100,13 +100,19 @@ function listSessions(flags) {
     )
     return 0
   }
-  const sessions = dsh.listSessions({ includeSubagents: false }).slice(0, limit)
+  const clientId = flags.client ? String(flags.client) : null
+  if (clientId && !ADAPTERS[clientId]) {
+    warn(`неизвестный клиент «${clientId}»: доступны dsh, claude-code, codex`)
+    return 1
+  }
+  const adapter = clientId ? ADAPTERS[clientId] : dsh
+  const sessions = adapter.listSessions({ includeSubagents: false }).slice(0, limit).map((session) => ({ ...session, client: adapter.id }))
   if (flags.json) {
     console.log(JSON.stringify(sessions, null, 2))
     return 0
   }
   if (sessions.length === 0) {
-    warn('сессии DSH не найдены (~/.dsh/sessions)')
+    warn(`сессии ${adapter.label} не найдены`)
     return 0
   }
   printTable(
@@ -422,6 +428,16 @@ function drift(args, flags) {
     if (flags.all) return driftAll(flags)
     return driftOne(args?.[0], flags)
   } catch (error) {
+    if (flags.json) {
+      console.log(JSON.stringify({
+        error: error.message,
+        session: null,
+        messages: 0,
+        analysis: { shifts: [], segments: [] },
+        savings: { total: 0 },
+      }, null, 2))
+      return 1
+    }
     warn(error.message)
     return 1
   }
@@ -434,7 +450,12 @@ function drift(args, flags) {
 function toolsReport(args, flags) {
   const picked = args?.[0] ? pickSession(args[0], flags) : { adapter: dsh, session: dsh.listSessions()[0] }
   if (!picked.session || picked.session.ambiguous) {
-    warn(`сессия «${args?.[0] ?? ''}» не найдена`)
+    const message = !args?.[0] ? 'сессий DSH не найдено' : `сессия «${args[0]}» не найдена или неоднозначна`
+    if (flags.json) {
+      console.log(JSON.stringify({ error: message, session: null, calls: 0, duplicates: [], totalWasted: 0 }, null, 2))
+      return 1
+    }
+    warn(message)
     return 1
   }
   const { calls, results } = dsh.toolCalls(picked.session)
@@ -553,23 +574,31 @@ function pressure(flags) {
   try {
     adapter = resolvePressureAdapter(flags)
   } catch (error) {
-    warn(error.message)
+    if (flags.json) console.log(JSON.stringify({ error: error.message }, null, 2))
+    else warn(error.message)
     return 1
   }
   const config = readJson(path.join(DATA_HOME, 'config.json')) ?? {}
   const threshold = resolveContextThreshold(flags, config)
   if (threshold === null) {
-    warn('порог должен быть числом токенов: --threshold 350k (или contextThreshold в config.json)')
+    if (flags.json) console.log(JSON.stringify({ error: 'порог должен быть числом токенов: --threshold 350k' }, null, 2))
+    else warn('порог должен быть числом токенов: --threshold 350k (или contextThreshold в config.json)')
     return 1
   }
   let sessions = []
   try {
     sessions = adapter.listSessions()
   } catch (error) {
-    warn(`не удалось прочитать сессии: ${error?.message ?? error}`)
+    const message = `не удалось прочитать сессии: ${error?.message ?? error}`
+    if (flags.json) console.log(JSON.stringify({ error: message }, null, 2))
+    else warn(message)
     return 1
   }
   if (sessions.length === 0) {
+    if (flags.json) {
+      console.log(JSON.stringify({ threshold, compactedEstimate: COMPACTED_CONTEXT_ESTIMATE, over: 0, sessions: [] }, null, 2))
+      return 0
+    }
     info('сессий не найдено')
     return 0
   }

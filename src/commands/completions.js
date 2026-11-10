@@ -1,6 +1,7 @@
 /** completions: автодополнение для bash, zsh и fish. */
 import fs from 'node:fs'
 import path from 'node:path'
+import { expand } from '../util/files.js'
 import { bold, info, ok, warn } from '../log.js'
 
 export const VALUE_FLAGS = ['out']
@@ -162,7 +163,7 @@ export async function run(positional, flags) {
     return 1
   }
   if (flags.out) {
-    const target = path.resolve(String(flags.out))
+    const target = path.resolve(expand(String(flags.out)))
     fs.mkdirSync(path.dirname(target), { recursive: true })
     fs.writeFileSync(target, script, 'utf8')
     ok(`автодополнение ${shell} сохранено: ${target}`)
