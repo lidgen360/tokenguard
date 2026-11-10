@@ -63,6 +63,8 @@ function dataHomeCheck({ dataHome: dir }) {
       }
     }
     if (!stat.isDirectory()) return { status: 'fail', detail: `${dir} — не каталог` }
+    // На Windows POSIX-права не работают: chmod меняет только read-only, mode не показателен.
+    if (process.platform === 'win32') return { status: 'ok', detail: dir }
     const mode = stat.mode & 0o777
     try {
       fs.accessSync(dir, fs.constants.W_OK)

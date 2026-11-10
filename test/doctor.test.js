@@ -14,7 +14,7 @@ function tempHome() {
 }
 
 function runDoctor(home, extra = []) {
-  const env = { ...process.env, HOME: home, TOKENGUARD_HOME: path.join(home, '.tokenguard'), NO_COLOR: '1' }
+  const env = { ...process.env, HOME: home, USERPROFILE: home, TOKENGUARD_HOME: path.join(home, '.tokenguard'), NO_COLOR: '1' }
   delete env.CCLINER_HOME
   return spawnSync(process.execPath, [CLI, 'doctor', '--json', ...extra], { cwd: ROOT, env, encoding: 'utf8' })
 }
@@ -50,7 +50,9 @@ test('doctor --fix: создаёт каталог данных и бэкапы �
   assert.ok(first.fixes.length >= 2)
   const dataHome = path.join(home, '.tokenguard')
   assert.ok(fs.statSync(dataHome).isDirectory())
-  assert.equal(fs.statSync(dataHome).mode & 0o077, 0)
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(dataHome).mode & 0o077, 0)
+  }
   assert.ok(fs.statSync(path.join(dataHome, 'backups')).isDirectory())
   assert.equal(first.summary.fail, 0)
 
