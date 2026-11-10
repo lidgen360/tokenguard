@@ -9,6 +9,10 @@ on:
   schedule:
     - cron: '0 2 * * 1'  # weekly Monday 02:00 UTC
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     name: Linux (ubuntu-latest)
@@ -52,6 +56,9 @@ jobs:
 
   macos:
     name: macOS (macos-latest)
+    # macOS-раннеры на free-плане часто стоят в очереди — гоняем их по расписанию
+    # и вручную, чтобы push-CI (Linux+Windows) оставался быстрым и зелёным.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
