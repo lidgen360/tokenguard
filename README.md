@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/lidgen360/tokenguard/actions/workflows/ci.yml/badge.svg)](https://github.com/lidgen360/tokenguard/actions/workflows/ci.yml)
 
+<p align="center">
+  <img src="assets/tokenguard-mascot-360.png" width="200" alt="tokenguard — хитрая крыса в доспехах">
+</p>
+
 **Линтер контекста для AI-харнессов.** Наводит порядок в чатах, MCP-серверах,
 заброшенных проектах и Markdown-документации — чтобы агенты меньше жгли токены
 и не тонули в устаревшем контексте.
