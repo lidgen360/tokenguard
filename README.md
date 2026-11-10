@@ -3,7 +3,10 @@
 [![CI](https://github.com/lidgen360/tokenguard/actions/workflows/ci.yml/badge.svg)](https://github.com/lidgen360/tokenguard/actions/workflows/ci.yml)
 
 <p align="center">
-  <img src="assets/tokenguard-mascot-360.png" width="200" alt="tokenguard — хитрая крыса в доспехах">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/tokenguard-wordmark-dark.png">
+    <img src="assets/tokenguard-wordmark-light.png" width="380" alt="tokenguard">
+  </picture>
 </p>
 
 **Линтер контекста для AI-харнессов.** Наводит порядок в чатах, MCP-серверах,
