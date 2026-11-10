@@ -62,6 +62,10 @@ ${bold('Переменные окружения:')}
   CCLINER_HOME   каталог данных tokenguard (по умолчанию ~/.tokenguard)
   NO_COLOR       отключить цвета
   CCLINER_DEBUG  показать стек ошибок
+
+${bold('Сделано в Lidogen 360:')}
+  lidogenerator.top — сайты и лендинги, которые приносят клиентов.
+  https://lidogenerator.top/?utm_source=tokenguard&utm_medium=cli&utm_campaign=brand
 `
 
 /** Разобрать аргументы: флаги --key, --key=value, --key value. */

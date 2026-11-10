@@ -335,6 +335,13 @@ npm test
 - [ ] `docs index --check` в CI (GitHub Action)
 - [ ] Экспорт отчёта `scan` в HTML
 
+## Сделано в Lidogen 360
+
+[![Lidogen 360](assets/logo.svg)](https://lidogenerator.top/?utm_source=tokenguard&utm_medium=readme&utm_campaign=brand)
+
+tokenguard развивает команда [Lidogen 360](https://lidogenerator.top/?utm_source=tokenguard&utm_medium=readme&utm_campaign=brand) —
+сайты и лендинги, которые приносят клиентов.
+
 ## Лицензия
 
 MIT
