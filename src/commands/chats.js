@@ -6,10 +6,10 @@ import * as claudeCode from '../adapters/claude-code.js'
 import * as codex from '../adapters/codex.js'
 import * as all from '../adapters/index.js'
 import { backupPaths } from '../util/backup.js'
-import { DATA_HOME, ensureDir, humanBytes, mtimeMs, timeAgo, shortId } from '../util/files.js'
+import { DATA_HOME, ensureDir, humanBytes, mtimeMs, readJson, timeAgo, shortId } from '../util/files.js'
 import { sanitizeName } from '../util/naming.js'
 import { printTable, info, ok, warn, bold } from '../log.js'
-import { estimateTokens, humanTokens } from '../util/tokens.js'
+import { estimateTokens, humanTokens, parseTokenCount } from '../util/tokens.js'
 import { analyzeTopicDrift, segmentLabel, topKeywords } from '../util/topics.js'
 import { recordArtifact } from '../util/manifest.js'
 import { redactSecrets } from '../util/redact.js'
@@ -28,6 +28,7 @@ export async function run(positional, flags) {
   if (sub === 'drift') return drift(positional.slice(1), flags)
   if (sub === 'tools') return tools(positional.slice(1), flags)
   if (sub === 'compact') return compact(positional.slice(1), flags)
+  if (sub === 'pressure') return pressure(flags)
   console.log(HELP)
   return 0
 }
@@ -42,7 +43,12 @@ const HELP = `${bold('tokenguard chats')} — архивариус чатов
   tokenguard chats tools [<session>] [--min-calls 2] [--json]
       Повторные одинаковые tool-вызовы: сколько раз и сколько токенов на них ушло.
   tokenguard chats compact <session> [--keep-last 8] [--out файл]
-      Сжать старую часть чата в конспект для продолжения в новом чате.
+  tokenguard chats compact --auto [--threshold 350k]
+      Сжать старую часть чата в конспект для продолжения в новом чате;
+      --auto — выбрать самую тяжёлую сессию выше порога контекста.
+  tokenguard chats pressure [--threshold 350k] [--top 12] [--json]
+      Давление контекста: сколько токенов в последнем запросе каждой сессии,
+      какие сессии выше порога и сколько даст сжатие на 100 запросов.
   tokenguard chats archive <session...> [--apply]
   tokenguard chats clean --older-than 30 [--apply]
 `
@@ -468,6 +474,140 @@ function toolsReport(args, flags) {
   return 0
 }
 
+export const DEFAULT_CONTEXT_THRESHOLD = 350_000
+export const COMPACTED_CONTEXT_ESTIMATE = 50_000
+
+/** Порог контекста: флаг → config.json → значение по умолчанию. null — некорректный флаг. */
+export function resolveContextThreshold(flags = {}, config = {}) {
+  const raw = flags.threshold ?? config.contextThreshold ?? DEFAULT_CONTEXT_THRESHOLD
+  return parseTokenCount(raw, null)
+}
+
+/**
+ * Давление контекста по сессиям: размер последнего запроса, максимум и оценка экономии.
+ * Чистая функция: adapter.usageTimeline(session) даёт историю usage.
+ */
+export function pressureData(sessions, { adapter, threshold = DEFAULT_CONTEXT_THRESHOLD } = {}) {
+  return (sessions ?? []).map((session) => {
+    let timeline = []
+    try {
+      timeline = (adapter?.usageTimeline(session) ?? []).filter((item) => item.promptTokens > 0)
+    } catch {
+      timeline = []
+    }
+    const last = timeline.length > 0 ? timeline[timeline.length - 1].promptTokens : 0
+    const max = timeline.reduce((value, item) => Math.max(value, item.promptTokens), last)
+    const first = timeline.length > 0 ? timeline[0].promptTokens : 0
+    const tail = timeline.slice(-8)
+    const avgLast8 = tail.length > 0 ? Math.round(tail.reduce((sum, item) => sum + item.promptTokens, 0) / tail.length) : 0
+    const cumulative = Number(session.promptTokens) || timeline.reduce((sum, item) => sum + item.promptTokens, 0)
+    const savedPerRequest = Math.max(0, last - COMPACTED_CONTEXT_ESTIMATE)
+    return {
+      id: session.id,
+      title: session.title ?? session.id,
+      client: adapter?.id ?? session.client ?? 'dsh',
+      requests: timeline.length,
+      last,
+      max,
+      first,
+      avgLast8,
+      cumulative,
+      bytes: session.bytes ?? 0,
+      threshold,
+      over: last >= threshold,
+      savedPerRequest,
+      savedPer100: savedPerRequest * 100,
+    }
+  }).sort((left, right) => right.last - left.last)
+}
+
+function resolvePressureAdapter(flags) {
+  const { id, adapter } = resolveAdapter(flags)
+  const target = adapter ?? dsh
+  if (typeof target.usageTimeline !== 'function') {
+    throw new Error(`для клиента «${id}» нет данных об использовании токенов`)
+  }
+  return target
+}
+
+function publicPressure(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    client: row.client,
+    requests: row.requests,
+    lastPromptTokens: row.last,
+    maxPromptTokens: row.max,
+    firstPromptTokens: row.first,
+    avgLast8PromptTokens: row.avgLast8,
+    cumulativePromptTokens: row.cumulative,
+    bytes: row.bytes,
+    overThreshold: row.over,
+    savedPerRequest: row.savedPerRequest,
+    savedPer100: row.savedPer100,
+  }
+}
+
+function pressure(flags) {
+  let adapter
+  try {
+    adapter = resolvePressureAdapter(flags)
+  } catch (error) {
+    warn(error.message)
+    return 1
+  }
+  const config = readJson(path.join(DATA_HOME, 'config.json')) ?? {}
+  const threshold = resolveContextThreshold(flags, config)
+  if (threshold === null) {
+    warn('порог должен быть числом токенов: --threshold 350k (или contextThreshold в config.json)')
+    return 1
+  }
+  let sessions = []
+  try {
+    sessions = adapter.listSessions()
+  } catch (error) {
+    warn(`не удалось прочитать сессии: ${error?.message ?? error}`)
+    return 1
+  }
+  if (sessions.length === 0) {
+    info('сессий не найдено')
+    return 0
+  }
+  const rows = pressureData(sessions, { adapter, threshold })
+  const top = Math.max(1, Number(flags.top ?? 12) || 12)
+  if (flags.json) {
+    console.log(JSON.stringify({
+      threshold,
+      compactedEstimate: COMPACTED_CONTEXT_ESTIMATE,
+      over: rows.filter((row) => row.over).length,
+      sessions: rows.map(publicPressure),
+    }, null, 2))
+    return 0
+  }
+  printTable(
+    ['Сессия', 'Последний', 'Макс', 'Запросов', 'Накопительно', 'Статус', '≈экономия/100'],
+    rows.slice(0, top).map((row) => [
+      `${row.title.slice(0, 36)}${row.title.length > 36 ? '…' : ''} (${shortId(row.id)})`,
+      humanTokens(row.last),
+      humanTokens(row.max),
+      row.requests,
+      humanTokens(row.cumulative),
+      row.over ? 'выше порога' : '—',
+      row.over ? humanTokens(row.savedPer100) : '—',
+    ]),
+  )
+  const over = rows.filter((row) => row.over).length
+  info(`порог: ${humanTokens(threshold)} · выше порога: ${over} из ${rows.length}`)
+  info(`оценка «после сжатия» — ${humanTokens(COMPACTED_CONTEXT_ESTIMATE)} токенов (конспект + последние сообщения)`)
+  if (over > 0) {
+    info('сжать вручную: tokenguard chats compact <session>')
+    info('выбрать самую тяжёлую автоматически: tokenguard chats compact --auto')
+  } else {
+    ok('все сессии ниже порога')
+  }
+  return 0
+}
+
 function compactChat(args, flags) {
   const picked = args?.[0] ? pickSession(args[0], flags) : { adapter: dsh, session: dsh.listSessions()[0] }
   if (!picked.session || picked.session.ambiguous) {
@@ -543,5 +683,21 @@ function tools(args, flags) {
 }
 
 function compact(args, flags) {
+  if (flags.auto) {
+    const config = readJson(path.join(DATA_HOME, 'config.json')) ?? {}
+    const threshold = resolveContextThreshold(flags, config)
+    if (threshold === null) {
+      warn('порог должен быть числом токенов: --threshold 350k')
+      return 1
+    }
+    const rows = pressureData(dsh.listSessions(), { adapter: dsh, threshold })
+    const picked = rows.find((row) => row.over)
+    if (!picked) {
+      ok(`нет сессий выше порога ${humanTokens(threshold)}`)
+      return 0
+    }
+    info(`авто-выбор: «${picked.title}» — последний запрос ${humanTokens(picked.last)} (${shortId(picked.id)})`)
+    return compactChat([picked.id], flags)
+  }
   return compactChat(args, flags)
 }

@@ -33,8 +33,10 @@ ${bold('Команды:')}
   chats archive <session...> [--apply]
   chats clean --older-than <days> [--apply]
   chats drift [<session>|--all] [--threshold 0.2] [--window 3] [--json]
+  chats pressure [--threshold 350k] [--top 12] [--json]
+  chats compact <session> [--keep-last 8] | --auto [--threshold 350k]
       Безопасный архивариус: список, конспект, переименование по смыслу,
-      архивация, удаление с бэкапом и детектор смены темы в диалоге.
+      архивация, удаление с бэкапом, детектор смены темы и давление контекста.
 
   mcp audit [--probe] [--json]
   mcp lazy <server> [--client <client>] [--apply] [--idle <minutes>]

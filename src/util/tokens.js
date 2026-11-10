@@ -43,3 +43,14 @@ export function humanTokens(value) {
   if (number >= 1_000) return `${(number / 1_000).toFixed(0)}K`
   return String(number)
 }
+
+/** Разобрать порог вида 350k, 1.2M, 250000; null — если значение некорректно. */
+export function parseTokenCount(value, fallback = null) {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value))
+  const text = String(value).trim().toLowerCase().replace(/[\s_]/g, '')
+  const match = text.match(/^([0-9]*\.?[0-9]+)([kmb])?$/)
+  if (!match) return fallback
+  const multiplier = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }[match[2]] ?? 1
+  return Math.round(Number(match[1]) * multiplier)
+}
