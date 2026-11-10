@@ -52,6 +52,11 @@ ${bold('Команды:')}
   artifacts clean (--all | --kind <тип> | --older-than <дней>) [--apply]
       Что создал tokenguard (бэкапы, конспекты, прокси, архивы) и безопасное удаление.
 
+  doctor [--json] [--strict] [--fix] [--root <dir>]
+      Самодиагностика: Node.js, каталог данных и права, бэкапы, реестр артефактов,
+      харнессы, MCP-конфиги, lazy-прокси, хук DSH, автозапуск, конфиг, место на диске.
+      --fix — безопасные исправления (каталоги, права 700, битые записи реестра).
+
 ${bold('Принципы:')}
   • по умолчанию ничего не меняется (dry-run), изменения — только с --apply;
   • перед любым изменением делается бэкап в ~/.tokenguard/backups;
@@ -99,6 +104,7 @@ const LOADERS = {
   projects: () => import('./commands/projects.js'),
   docs: () => import('./commands/docs.js'),
   artifacts: () => import('./commands/artifacts.js'),
+  doctor: () => import('./commands/doctor.js'),
   report: () => import('./commands/report.js'),
   budget: () => import('./commands/budget.js'),
   guard: () => import('./commands/guard.js'),

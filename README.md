@@ -42,6 +42,7 @@ tokenguard измеряет этот оверхед и уменьшает его
 | `tokenguard guard install/status/check` | Правило экономии контекста в AGENTS.md и проверка дрейфа темы |
 | `tokenguard artifacts list` | Что создал tokenguard: бэкапы, конспекты, lazy-прокси, архивы |
 | `tokenguard artifacts clean --all` | Безопасно удалить артефакты tokenguard (dry-run по умолчанию) |
+| `tokenguard doctor` | Самодиагностика: Node.js, данные и права, бэкапы, харнессы, MCP, lazy-прокси, хук DSH, автозапуск, конфиг, диск; `--fix` — безопасные исправления |
 | `tokenguard mcp audit [--probe]` | Найти MCP-конфиги, посчитать инструменты и токены их схем, показать использование |
 | `tokenguard mcp lazy <server>` | Сгенерировать ленивый прокси: 2 инструмента вместо всех, запуск по требованию |
 | `tokenguard mcp lazy --all [--apply] [--apply-dsh]` | Перевести в ленивый режим все stdio-серверы; `--apply-dsh` — точечно патчит профиль DSH |
