@@ -1,5 +1,7 @@
 # tokenguard
 
+[![CI](https://github.com/lidgen360/tokenguard/actions/workflows/ci.yml/badge.svg)](https://github.com/lidgen360/tokenguard/actions/workflows/ci.yml)
+
 **Линтер контекста для AI-харнессов.** Наводит порядок в чатах, MCP-серверах,
 заброшенных проектах и Markdown-документации — чтобы агенты меньше жгли токены
 и не тонули в устаревшем контексте.
@@ -45,47 +47,59 @@ tokenguard измеряет этот оверхед и уменьшает его
 | `tokenguard docs check` | Битые ссылки, противоречащие значения (порты/версии), дубли текста, устаревшие «актуально на» |
 
 
-## Установка и вызов
+## Установка
 
 ```bash
-# macOS / Linux
-cd ~/Sites/tokenguard
-npm install       # зависимости (yaml, smol-toml)
-npm link          # ставит в PATH команды tokenguard и ccliner (алиас)
+git clone https://github.com/lidgen360/tokenguard.git
+cd tokenguard
+npm ci            # зависимости: yaml, smol-toml
+npm link          # команды tokenguard и ccliner (алиас) в PATH
 tokenguard version
+```
 
-# Linux (systemd user units)
+Без глобальной установки: `node bin/tokenguard.js <команда>`.
+
+Старое имя `ccliner` сохранено как алиас; данные один раз переносятся
+из `~/.ccliner` в `~/.tokenguard`.
+
+### Автозапуск
+
+```bash
+# macOS — launchd
+tokenguard autostart print --os darwin --out ./services
+cp ./services/*.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.tokenguard.weekly.plist
+
+# Linux — systemd user units
 tokenguard autostart print --os linux --out ./services
 mkdir -p ~/.config/systemd/user && cp ./services/* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now tokenguard-weekly.timer tokenguard-mcpwatch.service
 
-# Windows (Task Scheduler)
+# Windows — Task Scheduler
 tokenguard autostart print --os win32 --out ./services
 # затем запустить от администратора:
 services\tokenguard-schtasks.bat
-
-# macOS (уже настроено через ~/Sites/ops)
 ```
 
-Старое имя `ccliner` сохранено как алиас. Данные автоматически переносятся
-из `~/.ccliner` в `~/.tokenguard` при первом запуске.
+`autostart print` подставляет пути к текущему `node` и CLI — генерируйте конфиги
+на целевой машине.
 
-Без установки: `node ~/Sites/tokenguard/bin/tokenguard.js <команда>`.
+### Откуда вызывать
 
-Откуда вызывать: из любой папки — команда работает с текущим каталогом либо с `--root`:
+Из любой папки — команда работает с текущим каталогом либо с `--root`:
 
 ```bash
-cd ~/Sites/Lidogenerator && tokenguard scan
-tokenguard docs check --root ~/Sites/Lidogenerator
+cd path/to/your/project && tokenguard scan
+tokenguard docs check --root path/to/your/project
 tokenguard chats drift
 ```
 
-Изнутри агента (DSH/Claude Code) ничего вызывать вручную не нужно: правило в `AGENTS.md`
-проекта просит агента проверить `tokenguard chats drift` перед продолжением длинного чата.
+Внутри агента (DSH/Claude Code) правило в `AGENTS.md` проекта может просить
+проверить `tokenguard chats drift` перед продолжением длинного чата.
 
-Как регулярный сервис (опционально): `launchd`/`cron` раз в неделю —
-`tokenguard scan --root ~/Sites` и `tokenguard artifacts clean --older-than 30 --apply`.
+Как регулярный сервис (опционально): `tokenguard autostart print` (launchd/systemd/schtasks)
+или `tokenguard scan --root ~/projects` и `tokenguard artifacts clean --older-than 30 --apply`.
 
 ## Быстрый старт
 
@@ -93,8 +107,8 @@ tokenguard chats drift
 в PATH).
 
 ```bash
-git clone <repo> tokenguard && cd tokenguard
-npm install
+git clone https://github.com/lidgen360/tokenguard.git tokenguard && cd tokenguard
+npm ci
 node bin/tokenguard.js scan
 node bin/tokenguard.js mcp audit --probe
 node bin/tokenguard.js chats list
@@ -169,7 +183,7 @@ from Apple Events».
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "node /Users/ila/Sites/tokenguard/bin/tokenguard-dsh-hook.js", "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "node \"/path/to/tokenguard/bin/tokenguard-dsh-hook.js\"", "timeout": 10 } ] }
     ]
   }
 }
@@ -182,7 +196,7 @@ from Apple Events».
     - id: hooks-claude-code
       name: '@deepseek-ai/dsh-hooks-claude-code'
       config:
-        configPath: /Users/ila/.dsh/hooks/tokenguard-hooks.json
+        configPath: /home/you/.dsh/hooks/tokenguard-hooks.json
 ```
 
 Хук молчит, пока дрейфа нет (модель не тратит контекст зря); при дрейфе добавляет ~200 символов.
@@ -228,27 +242,31 @@ tokenguard artifacts clean --all --apply      # удалить (только в�
 Удаляются только файлы внутри каталога tokenguard — это защита от «удали то, не знаю что».
 Переименования сессий показываются, но не удаляются: их бэкапы остаются в `~/.tokenguard/backups`.
 
-### Автоматический lazy для новых MCP (WatchPaths)
+### Автоматический lazy для новых MCP
 
-launchd-агент `ai.tokenguard.mcpwatch` следит за конфигами MCP и при их изменении
-запускает `tokenguard mcp lazy --all --apply --apply-dsh`:
+`tokenguard mcp watch` — кроссплатформенный наблюдатель: при изменении MCP-конфигов
+запускает `tokenguard mcp lazy --all --apply --apply-dsh`.
 
 - JSON-клиенты (Claude Code, Cursor, Gemini, VS Code) — конфиг переписывается сразу;
 - DSH — блок сервера в `cordis.patch.yml` заменяется точечно (бэкап + проверка YAML),
   харнесс подхватит после перезапуска;
-- страховка — запуск раз в 15 минут (`StartInterval`), лог — `~/Sites/ops/logs/tokenguard-mcpwatch.log`.
+- `--once` — один прогон для cron/Task Scheduler, `--interval <сек>` — период опроса.
 
-Файлы: `~/Sites/ops/ai.tokenguard.mcpwatch.plist`, `~/Sites/ops/tokenguard-mcpwatch.sh`.
-Управление:
+Автозапуск для всех ОС: `tokenguard autostart print --os darwin|linux|win32`
+(launchd / systemd user units / `schtasks`). На macOS пример launchd-агента
+(`WatchPaths` + `StartInterval`) генерируется этим же `autostart print --os darwin`;
+готовые plist-файлы в репозиторий не входят.
+
+Управление launchd-агентом на macOS (если используешь launchd):
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/ai.tokenguard.mcpwatch   # прогнать сейчас
 launchctl bootout     gui/$(id -u)/ai.tokenguard.mcpwatch   # выключить
 ```
 
-Ограничение: следятся глобальные конфиги (список в `WatchPaths`). Проектные
-`.mcp.json` в отдельных репозиториях охватываются, если добавить их путь в plist
-или запускать `tokenguard mcp lazy --all --apply` в каталоге проекта.
+Ограничение: следятся глобальные конфиги (список путей в `mcp watch`). Проектные
+`.mcp.json` охватываются, если запускать `tokenguard mcp lazy --all --apply`
+в каталоге проекта или добавить путь в конфиг.
 
 ## Поддерживаемые харнессы
 
@@ -269,7 +287,7 @@ launchctl bootout     gui/$(id -u)/ai.tokenguard.mcpwatch   # выключить
 
 | ОС | CLI | Автозапуск | Заметки |
 |---|---|---|---|
-| **macOS** | ✅ | `autostart print --os darwin` (launchd) или готовые агенты в `~/Sites/ops` | нативный путь Claude Desktop, WatchPaths-агент |
+| **macOS** | ✅ | `autostart print --os darwin` (launchd) | нативный путь Claude Desktop, `mcp watch` |
 | **Linux** | ✅ | `autostart print --os linux` (systemd user units) | `fs.watch` recursive при Node ≥ 20, плюс polling; `zstd` — нативно с Node ≥ 23.8 или пакет `zstd` |
 | **Windows** | ✅ | `autostart print --os win32` → `.bat` с `schtasks` | `tar` встроен в Win10+, пути `%USERPROFILE%\.dsh`, `%APPDATA%\Claude` |
 
@@ -331,7 +349,7 @@ npm test
 - [x] redaction секретов в конспектах
 - [ ] `chats digest --llm` — конспекты «текущего состояния» через LLM
 - [ ] Cursor/VS Code/Continue: чтение чатов из SQLite
-- [ ] `mcp lazy --apply` для DSH (правка YAML с сохранением комментариев)
+- [x] `mcp lazy --apply` для DSH (правка YAML с сохранением комментариев)
 - [ ] `docs index --check` в CI (GitHub Action)
 - [ ] Экспорт отчёта `scan` в HTML
 

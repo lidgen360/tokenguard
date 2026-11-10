@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.5 — 2026-11-10
+
+- Кроссплатформенность: Windows/Linux — пути Claude Desktop по ОС, `mcp watch`
+  (`fs.watch` + polling, `--once`), `autostart print` для launchd/systemd/schtasks.
+- CI: GitHub Actions matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`) +
+  Docker smoke-тест; `node --test` вместо `node --test test/` (Node 22 не находил тесты).
+- Тесты: 37 (кроссплатформенные ассерты путей, автозапуск, патчер DSH).
+- README: инструкции без локальных путей, установка через `git clone`.
+
 ## 0.3.4 — 2026-11-08
 
 - **Хук дрейфа можно выключить без перезапуска DSH**: `{"driftHook": false}` в
