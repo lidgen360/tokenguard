@@ -1,6 +1,7 @@
-/** mcp: аудит MCP-серверов и перевод их в ленивый режим. */
+/** mcp: аудит MCP-серверов, живая проверка и перевод их в ленивый режим. */
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { claudeDesktopConfigPath, discoverConfigs, scanUsage } from '../adapters/mcp-configs.js'
 import { probeMcpServer, schemasTokens } from '../util/mcp-stdio.js'
 import { renderLazyWrapper } from '../lazy/template.js'
@@ -10,13 +11,19 @@ import { sanitizeName } from '../util/naming.js'
 import { recordArtifact } from '../util/manifest.js'
 import { printTable, info, ok, warn, bold, dim } from '../log.js'
 
-export const VALUE_FLAGS = ['root', 'client', 'idle', 'server', 'out', 'min-tokens', 'interval']
+export const VALUE_FLAGS = ['root', 'client', 'idle', 'server', 'out', 'min-tokens', 'interval', 'timeout']
 
-const HELP = `${bold('tokenguard mcp')} — аудит MCP и ленивый режим
+const HELP = `${bold('tokenguard mcp')} — аудит, живая проверка и ленивый режим
 
   tokenguard mcp audit [--probe] [--json]
       Найти MCP-конфиги всех клиентов, посчитать инструменты и токены схем (--probe),
       показать фактическое использование и предложить ленивый режим.
+
+  tokenguard mcp verify <server> [--timeout 15] [--json]
+  tokenguard mcp verify --all [--timeout 15] [--json]
+      Живая проверка: запустить сервер и пройти initialize + tools/list.
+      Показать ok/fail, число инструментов, латентность и ошибку.
+      --all — все серверы из найденных конфигов; exit 1, если хоть один упал.
 
   tokenguard mcp lazy <server> [--client <клиент>] [--idle 10] [--apply]
   tokenguard mcp lazy --all [--apply] [--apply-dsh]
@@ -33,10 +40,334 @@ const HELP = `${bold('tokenguard mcp')} — аудит MCP и ленивый р�
 export async function run(positional, flags) {
   const sub = positional[0]
   if (sub === 'audit') return audit(flags)
+  if (sub === 'verify') return verify(positional[1], flags)
   if (sub === 'lazy') return flags.all ? lazyAll(flags) : lazy(positional[1], flags)
   if (sub === 'watch') return watchCommand(flags)
   console.log(HELP)
   return 0
+}
+
+const VERIFY_PROTOCOL_VERSION = '2024-11-05'
+const DEFAULT_VERIFY_TIMEOUT = 15
+
+/** Разобрать таймаут в секундах: число больше нуля или значение по умолчанию. */
+function normalizeTimeout(value) {
+  const seconds = Number(value ?? DEFAULT_VERIFY_TIMEOUT)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_VERIFY_TIMEOUT
+}
+
+/**
+ * Живая проверка одного MCP-сервера: initialize → notifications/initialized → tools/list.
+ * stdio-сервер запускается как дочерний процесс и гарантированно гасится (SIGTERM, затем SIGKILL).
+ * http(s)-сервер опрашивается POST-запросами с AbortController-таймаутом.
+ * Возвращает { name, transport, ok, toolCount, tools, serverInfo, error, ms }.
+ * @param {{name?: string, transport?: string, command?: string, args?: string[], env?: object, url?: string}} server
+ * @param {{timeout?: number}} [options] таймаут в секундах
+ */
+export async function verifyServer(server, options = {}) {
+  const target = server && typeof server === 'object' ? server : {}
+  const timeoutSec = normalizeTimeout(options.timeout)
+  const startedAt = Date.now()
+  const isHttp = Boolean(target.url) || target.transport === 'http' || target.transport === 'sse'
+  const transport = isHttp ? (target.transport === 'sse' ? 'sse' : 'http') : 'stdio'
+  const checked = isHttp
+    ? await verifyHttpServer(target, timeoutSec)
+    : await verifyStdioServer(target, timeoutSec)
+  return {
+    name: String(target.name ?? ''),
+    transport,
+    ok: Boolean(checked.ok),
+    toolCount: Number(checked.toolCount ?? 0),
+    tools: Array.isArray(checked.tools) ? checked.tools : [],
+    serverInfo: checked.serverInfo ?? null,
+    error: checked.ok ? null : String(checked.error ?? 'неизвестная ошибка'),
+    ms: Date.now() - startedAt,
+  }
+}
+
+/** Проверить stdio-сервер: spawn, JSON-RPC по строкам, таймаут и аккуратное убийство. */
+function verifyStdioServer(server, timeoutSec) {
+  return new Promise((resolve) => {
+    const command = server.command ? String(server.command) : ''
+    if (!command) {
+      resolve({ ok: false, toolCount: 0, tools: [], error: 'у stdio-сервера нет command — проверять нечего' })
+      return
+    }
+    const args = Array.isArray(server.args) ? server.args.map(String) : []
+    const env = server.env && typeof server.env === 'object' ? server.env : {}
+    let child
+    try {
+      child = spawn(command, args, {
+        cwd: server.cwd ? String(server.cwd) : undefined,
+        env: { ...process.env, ...env },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    } catch (error) {
+      resolve({ ok: false, toolCount: 0, tools: [], error: `не удалось запустить «${command}»: ${error.message}` })
+      return
+    }
+
+    let buffer = ''
+    let stderr = ''
+    let settled = false
+    let nextId = 1
+    const pending = new Map()
+    const timer = setTimeout(() => {
+      finish({ ok: false, toolCount: 0, tools: [], error: `таймаут ${timeoutSec}с: сервер не ответил на initialize/tools/list` })
+    }, timeoutSec * 1000)
+
+    function finish(result) {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      for (const { rejectPending } of pending.values()) rejectPending(new Error('проверка завершена'))
+      pending.clear()
+      stopChild(child)
+      resolve(result)
+    }
+
+    function send(message) {
+      if (settled || child.exitCode !== null || child.signalCode !== null || !child.stdin.writable) return
+      try {
+        child.stdin.write(`${JSON.stringify(message)}\n`)
+      } catch {
+        /* процесс уже закрыл stdin */
+      }
+    }
+
+    function request(method, params) {
+      return new Promise((res, rej) => {
+        const id = nextId
+        nextId += 1
+        pending.set(id, { res, rejectPending: rej })
+        send({ jsonrpc: '2.0', id, method, params })
+      })
+    }
+
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk.toString('utf8')
+      let newline = buffer.indexOf('\n')
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        newline = buffer.indexOf('\n')
+        if (!line) continue
+        const message = safeParseJson(line)
+        if (!message || message.id === undefined || !pending.has(message.id)) continue
+        const { res, rejectPending } = pending.get(message.id)
+        pending.delete(message.id)
+        if (message.error) rejectPending(new Error(message.error.message ?? 'MCP: ошибка в ответе'))
+        else res(message.result)
+      }
+    })
+    child.stderr.on('data', (chunk) => { stderr = (stderr + chunk.toString('utf8')).slice(-2000) })
+    child.stdin.on('error', () => { /* сервер мог закрыть stdin */ })
+    child.on('error', (error) => {
+      finish({ ok: false, toolCount: 0, tools: [], error: `не удалось запустить «${command}»: ${error.message}` })
+    })
+    child.on('exit', (code) => {
+      if (settled || pending.size === 0) return
+      const tail = stderr.trim().replace(/\s+/g, ' ').slice(0, 300)
+      finish({ ok: false, toolCount: 0, tools: [], error: `сервер завершился (код ${code ?? '—'}) до ответа${tail ? `: ${tail}` : ''}` })
+    })
+
+    ;(async () => {
+      try {
+        const initialized = await request('initialize', {
+          protocolVersion: VERIFY_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: 'tokenguard', version: '0.1.0' },
+        })
+        send({ jsonrpc: '2.0', method: 'notifications/initialized' })
+        const listed = await request('tools/list', {})
+        const tools = Array.isArray(listed?.tools) ? listed.tools : []
+        finish({
+          ok: true,
+          toolCount: tools.length,
+          tools: tools.map((tool) => String(tool?.name ?? '')),
+          serverInfo: initialized?.serverInfo ?? null,
+        })
+      } catch (error) {
+        finish({ ok: false, toolCount: 0, tools: [], error: error instanceof Error ? error.message : String(error) })
+      }
+    })()
+  })
+}
+
+/** Погасить дочерний процесс: SIGTERM, затем SIGKILL через 500 мс, если не умер. */
+function stopChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return
+  try {
+    child.stdin.end()
+  } catch {
+    /* stdin уже закрыт */
+  }
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    /* процесс уже завершился */
+  }
+  const forceKill = setTimeout(() => {
+    if (child.exitCode !== null || child.signalCode !== null) return
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      /* процесс уже завершился */
+    }
+  }, 500)
+  forceKill.unref()
+}
+
+/** Проверить http(s)-сервер: POST initialize → notifications/initialized → tools/list. */
+async function verifyHttpServer(server, timeoutSec) {
+  const url = server.url ? String(server.url) : ''
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, toolCount: 0, tools: [], error: `у http-сервера «${server.name ?? ''}» нет корректного url` }
+  }
+  const timeoutMs = timeoutSec * 1000
+  const baseHeaders = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+    ...(server.headers && typeof server.headers === 'object' ? server.headers : {}),
+  }
+  let sessionId = null
+  const post = async (payload) => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const headers = sessionId ? { ...baseHeaders, 'mcp-session-id': sessionId } : baseHeaders
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+      const session = response.headers.get('mcp-session-id')
+      if (session) sessionId = session
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => '')).trim().slice(0, 200)
+        throw new Error(`HTTP ${response.status} ${response.statusText}${detail ? `: ${detail}` : ''}`)
+      }
+      if (payload.id === undefined) return null
+      return await readJsonRpcResponse(response, payload.id)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  try {
+    const initialized = await post({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: VERIFY_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: 'tokenguard', version: '0.1.0' },
+      },
+    })
+    try {
+      await post({ jsonrpc: '2.0', method: 'notifications/initialized' })
+    } catch {
+      /* уведомление необязательно: часть серверов отвечает 202 или 405 */
+    }
+    const listed = await post({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+    const tools = Array.isArray(listed?.tools) ? listed.tools : []
+    return {
+      ok: true,
+      toolCount: tools.length,
+      tools: tools.map((tool) => String(tool?.name ?? '')),
+      serverInfo: initialized?.serverInfo ?? null,
+    }
+  } catch (error) {
+    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+      return { ok: false, toolCount: 0, tools: [], error: `таймаут ${timeoutSec}с: ${url} не ответил` }
+    }
+    const hint = server.transport === 'sse' ? ' (legacy SSE не поддержан — нужен Streamable HTTP)' : ''
+    return { ok: false, toolCount: 0, tools: [], error: `не удалось проверить ${url}: ${error.message}${hint}` }
+  }
+}
+
+/** Достать JSON-RPC-ответ из обычного JSON или SSE-потока (Streamable HTTP). */
+async function readJsonRpcResponse(response, id) {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (contentType.includes('text/event-stream')) {
+    const text = await response.text()
+    for (const raw of text.split('\n')) {
+      const line = raw.trim()
+      if (!line.startsWith('data:')) continue
+      const message = safeParseJson(line.slice(5).trim())
+      if (!message || message.id !== id) continue
+      if (message.error) throw new Error(message.error.message ?? 'MCP: ошибка в ответе')
+      return message.result
+    }
+    throw new Error('сервер не прислал JSON-RPC-ответ в SSE-потоке')
+  }
+  const message = safeParseJson(await response.text())
+  if (!message) throw new Error('ответ сервера — не JSON-RPC')
+  if (message.error) throw new Error(message.error.message ?? 'MCP: ошибка в ответе')
+  return message.result
+}
+
+function safeParseJson(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/** Живая проверка серверов из конфигов: `tokenguard mcp verify <server>|--all`. */
+async function verify(serverName, flags) {
+  const timeoutSec = normalizeTimeout(flags.timeout)
+  const root = flags.root ? path.resolve(String(flags.root)) : process.cwd()
+  const configs = await discoverConfigs({ root })
+  const known = []
+  for (const config of configs) {
+    for (const server of config.servers) known.push({ client: config.client, server })
+  }
+  if (known.length === 0) {
+    warn('MCP-конфиги не найдены (DSH, Claude, Codex, Gemini, Cursor, VS Code)')
+    return 1
+  }
+  let targets
+  if (flags.all) {
+    targets = known
+  } else if (serverName) {
+    const clientFilter = flags.client ? String(flags.client).toLowerCase() : null
+    targets = known.filter(({ client, server }) => server.name === serverName
+      && (!clientFilter || client.toLowerCase().includes(clientFilter)))
+    if (targets.length === 0) {
+      warn(`MCP-сервер «${serverName}» не найден в конфигах`)
+      return 1
+    }
+  } else {
+    warn('укажи сервер или --all: tokenguard mcp verify <server> | tokenguard mcp verify --all')
+    return 1
+  }
+  const results = []
+  for (const { client, server } of targets) {
+    results.push({ client, ...(await verifyServer(server, { timeout: timeoutSec })) })
+  }
+  const failed = results.filter((result) => !result.ok).length
+  if (flags.json) {
+    console.log(JSON.stringify(results, null, 2))
+  } else {
+    printTable(
+      ['Клиент', 'Сервер', 'Транспорт', 'Итог', 'Инстр.', 'Латентность', 'Ошибка'],
+      results.map((result) => [
+        result.client,
+        result.name,
+        result.transport,
+        result.ok ? 'ok' : 'fail',
+        result.toolCount,
+        `${result.ms} мс`,
+        result.ok ? '' : String(result.error ?? '').slice(0, 80),
+      ]),
+    )
+    info(`проверено серверов: ${results.length}, ok: ${results.length - failed}, fail: ${failed}`)
+    if (failed > 0) info('ни один конфиг не изменён: verify ничего не пишет на диск')
+  }
+  return failed === 0 ? 0 : 1
 }
 
 async function audit(flags) {

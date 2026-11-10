@@ -13,8 +13,9 @@ ${bold('Команды:')}
   scan [--root <dir>] [--json]
       Обзор: найденные харнессы и сессии, MCP-оверхед, мёртвые проекты, состояние docs.
 
-  report [--days 7] [--json] [--pricing <file>]
+  report [--days 7] [--json] [--html <file>] [--pricing <file>]
       Профайлер токенов: по дням, сессиям и инструментам; оценка стоимости.
+      --html — самодостаточный HTML-отчёт с графиками, топ-сессиями и инструментами.
 
   budget set --daily 20M [--weekly 100M]
   budget status | check
@@ -37,8 +38,9 @@ ${bold('Команды:')}
 
   mcp audit [--probe] [--json]
   mcp lazy <server> [--client <client>] [--apply] [--idle <minutes>]
-      Аудит MCP-конфигов (инструменты, токены, использование) и перевод
-      сервера в ленивый режим (2 инструмента, запуск по требованию).
+  mcp verify [<server>|--all] [--timeout 10] [--json]
+      Аудит MCP-конфигов (инструменты, токены, использование), перевод
+      сервера в ленивый режим и живая проверка (initialize + tools/list).
 
   projects scan [--root <dir>] [--json]
   projects archive <path> [--apply] [--delete]
@@ -56,6 +58,17 @@ ${bold('Команды:')}
       Самодиагностика: Node.js, каталог данных и права, бэкапы, реестр артефактов,
       харнессы, MCP-конфиги, lazy-прокси, хук DSH, автозапуск, конфиг, место на диске.
       --fix — безопасные исправления (каталоги, права 700, битые записи реестра).
+
+  attachments list [--json]
+  attachments clean [--older-than <дней>] [--apply] [--json]
+      Вложения DSH: сколько занимают, какие осиротели, безопасная очистка.
+
+  completions [bash|zsh|fish] [--out <file>]
+      Скрипт автодополнения команд для оболочки.
+
+  init [--apply] [--json] [--root <dir>]
+      Первичная настройка: каталог данных, guard-правило в AGENTS.md,
+      хук DSH (если профиль готов), подсказка по автозапуску.
 
 ${bold('Принципы:')}
   • по умолчанию ничего не меняется (dry-run), изменения — только с --apply;
@@ -105,6 +118,9 @@ const LOADERS = {
   docs: () => import('./commands/docs.js'),
   artifacts: () => import('./commands/artifacts.js'),
   doctor: () => import('./commands/doctor.js'),
+  attachments: () => import('./commands/attachments.js'),
+  completions: () => import('./commands/completions.js'),
+  init: () => import('./commands/init.js'),
   report: () => import('./commands/report.js'),
   budget: () => import('./commands/budget.js'),
   guard: () => import('./commands/guard.js'),

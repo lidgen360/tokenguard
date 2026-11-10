@@ -38,13 +38,19 @@ tokenguard измеряет этот оверхед и уменьшает его
 | `tokenguard chats compact <id>` | Сжать старую часть чата в конспект и продолжить в новом чате |
 | `tokenguard chats tools <id>` | Повторные одинаковые tool-вызовы: сколько раз и сколько токенов впустую |
 | `tokenguard report [--days 7]` | Профайлер токенов: по дням, сессиям и инструментам, с оценкой стоимости |
+| `tokenguard report --html report.html` | Самодостаточный HTML-отчёт: графики по дням, топ-сессии и инструменты, маскот |
 | `tokenguard budget set/status/check` | Дневной/недельный бюджет токенов и контроль перерасхода |
 | `tokenguard guard install/status/check` | Правило экономии контекста в AGENTS.md и проверка дрейфа темы |
 | `tokenguard artifacts list` | Что создал tokenguard: бэкапы, конспекты, lazy-прокси, архивы |
 | `tokenguard artifacts clean --all` | Безопасно удалить артефакты tokenguard (dry-run по умолчанию) |
 | `tokenguard doctor` | Самодиагностика: Node.js, данные и права, бэкапы, харнессы, MCP, lazy-прокси, хук DSH, автозапуск, конфиг, диск; `--fix` — безопасные исправления |
+| `tokenguard attachments list` | Вложения DSH: сколько занимают, какие осиротели |
+| `tokenguard attachments clean --older-than 14` | Удалить осиротевшие вложения старше 14 дней (dry-run, с `--apply` — удаление) |
+| `tokenguard completions bash` | Автодополнение для bash, zsh или fish |
+| `tokenguard init` | Первичная настройка: данные, guard-правило, хук, подсказка по автозапуску |
 | `tokenguard mcp audit [--probe]` | Найти MCP-конфиги, посчитать инструменты и токены их схем, показать использование |
 | `tokenguard mcp lazy <server>` | Сгенерировать ленивый прокси: 2 инструмента вместо всех, запуск по требованию |
+| `tokenguard mcp verify <server>` | Живая проверка MCP: `initialize` + `tools/list`, число инструментов и латентность |
 | `tokenguard mcp lazy --all [--apply] [--apply-dsh]` | Перевести в ленивый режим все stdio-серверы; `--apply-dsh` — точечно патчит профиль DSH |
 | `tokenguard projects scan` | Мёртвые/незавершённые проекты по git-метрикам |
 | `tokenguard projects archive <path>` | git bundle + tar + опись, опционально перенос в архив |
@@ -114,6 +120,7 @@ tokenguard chats drift
 ```bash
 git clone https://github.com/lidgen360/tokenguard.git tokenguard && cd tokenguard
 npm ci
+node bin/tokenguard.js doctor
 node bin/tokenguard.js scan
 node bin/tokenguard.js mcp audit --probe
 node bin/tokenguard.js chats list
@@ -138,6 +145,21 @@ node bin/tokenguard.js mcp lazy safari --probe
 
 Для JSON-клиентов (Claude Code, Cursor, Gemini, VS Code) конфиг переписывается
 автоматически с `--apply`; для DSH печатается готовый YAML-блок.
+
+## Отчёты и уборка
+
+```bash
+tokenguard report --days 7 --html report.html   # один файл: без внешних CSS/JS и запросов
+tokenguard attachments list                     # сколько занимают вложения DSH
+tokenguard attachments clean --older-than 14    # dry-run: только осиротевшие
+tokenguard attachments clean --older-than 14 --apply
+```
+
+HTML-отчёт можно открыть локально или отправить как артефакт: внутри inline-графики,
+итоги, топ-сессии и инструменты, маскот; данных наружу не уходит.
+
+`attachments` удаляет только объекты, на которые не ссылается ни одна сессия, и только
+старше порога. Если сессии прочитать не удалось, очистка отменяется — ничего не теряется.
 
 ## Детектор смены темы
 

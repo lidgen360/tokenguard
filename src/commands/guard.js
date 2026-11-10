@@ -22,14 +22,14 @@ const HELP = `${bold('tokenguard guard')} — защита контекста в
 
 export async function run(positional, flags) {
   const sub = positional[0]
-  if (sub === 'install') return install(flags)
+  if (sub === 'install') return installGuard(path.resolve(flags.root ? String(flags.root) : process.cwd()))
   if (sub === 'status') return status(flags)
   if (sub === 'check') return check(flags)
   console.log(HELP)
   return 0
 }
 
-function guardBlock() {
+export function guardBlock() {
   return `${MARK_BEGIN}
 ## Экономия контекста (tokenguard)
 
@@ -42,8 +42,8 @@ function guardBlock() {
 ${MARK_END}`
 }
 
-function install(flags) {
-  const root = path.resolve(flags.root ? String(flags.root) : process.cwd())
+/** Добавить/обновить guard-блок в AGENTS.md. Без вывода — для init и тестов. */
+export function upsertGuard(root) {
   const file = path.join(root, 'AGENTS.md')
   const block = guardBlock()
   let content = ''
@@ -53,10 +53,7 @@ function install(flags) {
     if (content.includes(MARK_BEGIN)) {
       const pattern = new RegExp(`${escapeRegExp(MARK_BEGIN)}[\\s\\S]*?${escapeRegExp(MARK_END)}`)
       const next = content.replace(pattern, block)
-      if (next === content) {
-        ok(`правило уже актуально: ${file}`)
-        return 0
-      }
+      if (next === content) return { file, changed: false, backup: null }
       content = next
       backup = backupPaths([file], 'guard-agents')
     } else {
@@ -67,8 +64,17 @@ function install(flags) {
     content = `${block}\n`
   }
   writeFile(file, content)
-  ok(`правило добавлено: ${file}`)
-  if (backup) info(`бэкап: ${backup}`)
+  return { file, changed: true, backup }
+}
+
+export function installGuard(root) {
+  const result = upsertGuard(root)
+  if (!result.changed) {
+    ok(`правило уже актуально: ${result.file}`)
+    return 0
+  }
+  ok(`правило добавлено: ${result.file}`)
+  if (result.backup) info(`бэкап: ${result.backup}`)
   info('агент увидит правило в следующей сессии (или после перезапуска)')
   return 0
 }

@@ -1,12 +1,13 @@
-/** report: где уходят токены — по дням, сессиям и инструментам. */
+/** report: где уходят токены — по дням, сессиям и инструментам (+ самодостаточный HTML). */
 import path from 'node:path'
 import * as dsh from '../adapters/dsh.js'
-import { DATA_HOME, readJson } from '../util/files.js'
+import { DATA_HOME, readJson, writeFile } from '../util/files.js'
 import { humanTokens } from '../util/tokens.js'
 import { humanBytes } from '../util/files.js'
+import { buildHtml } from '../util/report-html.js'
 import { printTable, info, warn, bold } from '../log.js'
 
-export const VALUE_FLAGS = ['days', 'client', 'pricing', 'top']
+export const VALUE_FLAGS = ['days', 'client', 'pricing', 'top', 'html']
 
 export async function run(positional, flags) {
   const days = Number(flags.days ?? 7)
@@ -61,6 +62,14 @@ export async function run(positional, flags) {
     sessions: perSession.sort((a, b) => b.prompt - a.prompt),
     pricing,
     cost,
+  }
+  if (flags.html !== undefined) {
+    if (flags.html === true) {
+      warn('укажи файл для --html, например: tokenguard report --html report.html')
+      return 1
+    }
+    const target = writeFile(String(flags.html), buildHtml(result))
+    if (!flags.json) info(`HTML-отчёт: ${target}`)
   }
   if (flags.json) {
     console.log(JSON.stringify(result, null, 2))
