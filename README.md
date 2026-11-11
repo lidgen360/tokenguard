@@ -70,6 +70,7 @@ git clone https://github.com/lidgen360/tokenguard.git
 cd tokenguard
 npm ci            # зависимости: yaml, smol-toml
 npm link          # команды tokenguard и ccliner (алиас) в PATH
+tokenguard --help # список команд
 tokenguard version
 ```
 
@@ -439,4 +440,4 @@ tokenguard развивает команда [Lidogen 360](https://lidogenerator
 
 ## Лицензия
 
-MIT
+MIT © 2026 Lidgen 360. Полный текст — в [LICENSE](LICENSE).
