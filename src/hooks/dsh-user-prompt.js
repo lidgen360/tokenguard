@@ -205,8 +205,10 @@ export function buildContextContext(payload, { exec, now = Date.now(), statePath
   return [
     '[tokenguard-context]',
     `Контекст чата${title ? ` «${title}»` : ''} ≈ ${humanTokens(lastPrompt)} токенов (порог ${humanTokens(threshold)}).`,
-    'Сжать старую часть в конспект, чтобы следующие ответы были дешевле?',
-    `Если да — tokenguard chats compact ${key} --keep-last 8, затем вставить конспект первым сообщением в новый чат.`,
-    `Это напоминание (не чаще раза в ${cooldownMinutes} мин). Спроси пользователя; не создавай чат и не сжимай без его ответа.`,
+    'Спроси пользователя через инструмент `ask_user_question` (карточка с кнопками, не текстом):',
+    'короткий вопрос «Сжать контекст?» и два варианта:',
+    '1) «Сжать сейчас (Recommended)» — выполни `tokenguard chats compact ' + key + ' --keep-last 8` и отдай конспект;',
+    '2) «Позже» — ничего не делай, напоминание вернётся не раньше чем через ' + cooldownMinutes + ' мин.',
+    'Не создавай чат и не сжимай без ответа пользователя.',
   ].join(' ')
 }

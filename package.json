@@ -1,6 +1,6 @@
 {
   "name": "tokenguard",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "Context liner for AI coding harnesses: safe chat archivist, meaningful chat rename, lazy MCP, dead-project scan, Markdown index and contradictions check.",
   "type": "module",
